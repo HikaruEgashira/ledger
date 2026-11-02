@@ -1,0 +1,69 @@
+[
+  ["", "Expecting value: line 1 column 1 (char 0)", "Expecting value"],
+  ["not json", "Expecting value: line 1 column 1 (char 0)", "Expecting value"],
+  [
+    "{",
+    "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+    "Expecting property name enclosed in double quotes"
+  ],
+  ["{\"a\"", "Expecting ':' delimiter: line 1 column 5 (char 4)", "Expecting ':' delimiter"],
+  ["{\"a\" 1}", "Expecting ':' delimiter: line 1 column 6 (char 5)", "Expecting ':' delimiter"],
+  ["{\"a\":}", "Expecting value: line 1 column 6 (char 5)", "Expecting value"],
+  [
+    "{\"a\":1,}",
+    "Illegal trailing comma before end of object: line 1 column 7 (char 6)",
+    "Illegal trailing comma before end of object"
+  ],
+  [
+    "[1,]",
+    "Illegal trailing comma before end of array: line 1 column 3 (char 2)",
+    "Illegal trailing comma before end of array"
+  ],
+  ["[1 2]", "Expecting ',' delimiter: line 1 column 4 (char 3)", "Expecting ',' delimiter"],
+  [
+    "{\"a\":1 \"b\":2}",
+    "Expecting ',' delimiter: line 1 column 8 (char 7)",
+    "Expecting ',' delimiter"
+  ],
+  [
+    "\"abc",
+    "Unterminated string starting at: line 1 column 1 (char 0)",
+    "Unterminated string starting at"
+  ],
+  ["\"a\\x\"", "Invalid \\escape: line 1 column 3 (char 2)", "Invalid \\escape"],
+  ["\"\\u12\"", "Invalid \\uXXXX escape: line 1 column 3 (char 2)", "Invalid \\uXXXX escape"],
+  [
+    "\"a\nb\"",
+    "Invalid control character at: line 1 column 3 (char 2)",
+    "Invalid control character at"
+  ],
+  [
+    "{1:2}",
+    "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+    "Expecting property name enclosed in double quotes"
+  ],
+  ["[", "Expecting value: line 1 column 2 (char 1)", "Expecting value"],
+  ["1 2", "Extra data: line 1 column 3 (char 2)", "Extra data"],
+  ["01", "Extra data: line 1 column 2 (char 1)", "Extra data"],
+  ["-", "Expecting value: line 1 column 1 (char 0)", "Expecting value"],
+  ["nul", "Expecting value: line 1 column 1 (char 0)", "Expecting value"],
+  [
+    "{\"a\":1,\"b\"}",
+    "Expecting ':' delimiter: line 1 column 11 (char 10)",
+    "Expecting ':' delimiter"
+  ],
+  [
+    "[1,\n  ]",
+    "Illegal trailing comma before end of array: line 1 column 3 (char 2)",
+    "Illegal trailing comma before end of array"
+  ],
+  ["\n\n  x", "Expecting value: line 3 column 3 (char 4)", "Expecting value"],
+  ["NaN", null],
+  ["[-Infinity]", null],
+  ["{\"a\":\"\\ud800\"}", null],
+  [
+    " {\"k\": [1, 2, {\"x\": tru}]}",
+    "Expecting value: line 1 column 21 (char 20)",
+    "Expecting value"
+  ]
+]

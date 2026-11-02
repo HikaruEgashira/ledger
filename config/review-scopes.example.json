@@ -1,0 +1,15 @@
+{
+  "scopes": [
+    {
+      "name": "team-repo",
+      "repo": "example-org/example-repo",
+      "profile": "skills/review-ledger-prs/references/team-review-profile.md"
+    },
+    {
+      "name": "team-authors",
+      "repos": ["example-org/another-repo"],
+      "authors": ["teammate-login"],
+      "profile": "skills/review-ledger-prs/references/team-review-profile.md"
+    }
+  ]
+}

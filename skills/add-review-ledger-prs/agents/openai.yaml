@@ -1,0 +1,4 @@
+interface:
+  display_name: "Add Review Ledger PRs"
+  short_description: "Add verified exact PR URLs to the review ledger"
+  default_prompt: "Use $add-review-ledger-prs to add a live-verified exact <org> pull request URL to the review ledger."

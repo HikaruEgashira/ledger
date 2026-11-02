@@ -1,0 +1,17 @@
+# Copy to config/config.toml (gitignored) and fill in values for this machine / organization.
+# Only top-level keys with string or string-array values are supported.
+org = "example-org"
+ghtkn_read_app = "example-org/read"
+launchd_label_prefix = "com.example"
+notify_slack_user = "U00000000"
+exclude_authors = ["your-github-login"]
+worker_command = [
+  "/usr/bin/env",
+  "LANG=en_US.UTF-8",
+  "claude",
+  "--permission-mode", "auto",
+  "--output-format", "stream-json",
+  "--verbose",
+  "-p",
+  "/review-ledger-prs Process the ledger targets exactly once, then exit.",
+]

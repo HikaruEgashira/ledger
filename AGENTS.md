@@ -1,0 +1,2 @@
+- repoはgh q get owner/repoで取得 ~/ghq/github.com/owner/repo で管理
+- worktreeはgh wt add

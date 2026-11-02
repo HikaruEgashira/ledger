@@ -1,0 +1,19 @@
+{
+  "name": "review-workspaces",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp build",
+    "test": "vp test",
+    "serve": "bun src/server.ts",
+    "start": "vp build && bun src/server.ts --port 8765 --interval 60"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "vite-plus": "^1.1.0"
+  },
+  "dependencies": {
+    "smol-toml": "^1.9.1"
+  }
+}
