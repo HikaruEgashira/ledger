@@ -1,0 +1,17 @@
+# Allowlist: only generic source is published. Machine/org specific data stays local.
+/*
+!/.gitignore
+!/README.md
+!/AGENTS.md
+!/app/
+!/scripts/
+!/launchd/
+!/skills/
+!/config/
+/config/*
+!/config/*.example.*
+
+app/node_modules/
+app/dist/
+app/.claude/
+.DS_Store
