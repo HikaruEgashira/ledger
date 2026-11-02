@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>AQUA_GLOBAL_CONFIG</key>
+		<string>@HOME@/aqua.yaml</string>
+		<key>AQUA_LOG_LEVEL</key>
+		<string>error</string>
+		<key>GHTKN_AGENT_SOCKET</key>
+		<string>@HOME@/.cache/ghtkn/agent.sock</string>
+		<key>GHTKN_APP</key>
+		<string>@GHTKN_READ_APP@</string>
+		<key>GHTKN_BACKEND</key>
+		<string>agent</string>
+		<key>REVIEWCTL_GH</key>
+		<string>@HOME@/bin/gh</string>
+		<key>PATH</key>
+		<string>@HOME@/bin:@HOME@/.local/bin:@HOME@/.local/share/aquaproj-aqua/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>XDG_CACHE_HOME</key>
+		<string>@HOME@/ghq/.cache</string>
+	</dict>
+	<key>StartCalendarInterval</key><dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict><key>_unused</key>
+	<true/>
+	<key>Label</key>
+	<string>@LABEL_PREFIX@.review-retro</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/zsh</string>
+		<string>-i</string>
+		<string>@REPO_ROOT@/scripts/daily-retro.sh</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>@REPO_ROOT@/logs/review-retro.error.log</string>
+	<key>StandardOutPath</key>
+	<string>@REPO_ROOT@/logs/review-retro.log</string>
+	<key>WorkingDirectory</key>
+	<string>@REPO_ROOT@</string>
+</dict>
+</plist>

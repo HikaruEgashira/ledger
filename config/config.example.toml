@@ -1,0 +1,28 @@
+# Copy to config/config.toml (gitignored) and fill in values for this machine / organization.
+org = "example-org"
+ghtkn_read_app = "example-org/read"
+launchd_label_prefix = "com.example"
+notify_slack_user = "U00000000"
+exclude_authors = ["your-github-login"]
+worker_command = [
+  "/usr/bin/env",
+  "LANG=en_US.UTF-8",
+  "claude",
+  "--permission-mode", "auto",
+  "--output-format", "stream-json",
+  "--verbose",
+  "-p",
+  "/review-ledger-prs Process the ledger targets exactly once, then exit.",
+]
+
+# Team scopes polled by app/src/review-poller.ts. Use exactly one of repo or authors (+ repos).
+[[scopes]]
+name = "team-repo"
+repo = "example-org/example-repo"
+profile = "skills/review-ledger-prs/references/team-review-profile.md"
+
+[[scopes]]
+name = "team-authors"
+authors = ["teammate-login"]
+repos = ["example-org/another-repo"]
+profile = "skills/review-ledger-prs/references/team-review-profile.md"

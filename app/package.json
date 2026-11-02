@@ -1,0 +1,16 @@
+{
+  "name": "ledger",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build webui/index.html --outdir dist --minify",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p .",
+    "serve": "bun src/server.ts",
+    "start": "bun run build && bun src/server.ts --port 8765 --interval 60"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "typescript": "^7.0.2"
+  }
+}

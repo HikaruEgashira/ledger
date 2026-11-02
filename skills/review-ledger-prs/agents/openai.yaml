@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Ledger PRs"
+  short_description: "Review and correct PRs through verified delivery"
+  default_prompt: "Use $review-ledger-prs to review, correct, and operate every due PR through verified delivery completion."
