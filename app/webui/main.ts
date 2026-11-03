@@ -80,7 +80,6 @@ const hideTip = () => {
   tip.style.display = "none";
 };
 
-const QUEUE_LIMIT = 50;
 const column = (r: Card) => (r.queue?.state === "running" ? "in_progress" : r.status);
 const ago = (iso: string | null) => (iso ? `${Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000))}m` : "");
 function queueTag(r: Card): HTMLElement | null {
@@ -92,13 +91,7 @@ function queueTag(r: Card): HTMLElement | null {
   if (q.attempts > 0 && q.next_at) return el("span", "tag warn", `retry ${q.attempts}/3 @ ${fmtJst(q.next_at).slice(11, 16)}`);
   return el("span", "tag", "waiting");
 }
-function queueSummary(rows: Card[]) {
-  const n = (s: string) => rows.filter((r) => r.queue?.state === s).length;
-  document.getElementById("qsum")!.textContent =
-    `running ${n("running")}/${QUEUE_LIMIT} · waiting ${n("waiting")} · exhausted ${n("exhausted")}`;
-}
 function renderBoard(rows: Card[]) {
-  queueSummary(rows);
   const known = new Set(COLUMNS.map((c) => c[0]));
   const extra = [...new Set(rows.map(column).filter((s) => !known.has(s)))].map((s) => [
     s,
