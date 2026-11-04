@@ -27,6 +27,7 @@ export interface Job {
   finished_at?: string;
   next_at?: string;
   exit_code?: number | null;
+  evidence?: string | null;
 }
 export type Queue = Record<string, Job>;
 type Row = Record<string, any>;
@@ -36,6 +37,8 @@ export interface Target {
   head: string;
   updated: string;
   priority: number;
+  /** Ledger `evidence_sha256`; only a worker's `record` changes it (sync refreshes `decision` too). */
+  evidence?: string | null;
 }
 
 export function rowScope(row: Row): string | null {
@@ -56,11 +59,12 @@ export function targets(rows: Row[]): Target[] {
     const updated = r.live?.updatedAt ?? "";
     const approvedHead = r.approval?.head_sha;
     const verifying = r.approval?.verification === "pending";
+    const evidence = r.evidence_sha256 ?? null;
     // Re-reviewing an unchanged approved head only risks clobbering its evidence.
     if (r.status === "queued" && !(approvedHead && approvedHead === head && !verifying))
-      out.push({ url: r.url, scope, head, updated, priority: r.priority ?? 50 });
+      out.push({ url: r.url, scope, head, updated, priority: r.priority ?? 50, evidence });
     else if (r.status === "approval_pending_verification" && verifying)
-      out.push({ url: r.url, scope, head, updated, priority: r.priority ?? 50 });
+      out.push({ url: r.url, scope, head, updated, priority: r.priority ?? 50, evidence });
   }
   return out;
 }
@@ -86,8 +90,8 @@ export function plan(
     // A new head or PR activity (e.g. resolved threads) is new work with a fresh budget.
     if (t.head !== job.head || t.updated !== job.updated) continue;
     if (job.state === "running") {
-      // Clean exit = the worker reached a verdict (possibly "wait for author"); only crashes or unknown exits retry.
-      const ok = job.exit_code === 0;
+      // Done only if the worker exited cleanly and recorded evidence; a clean exit without it (e.g. a blocked record) retries.
+      const ok = job.exit_code === 0 && (t.evidence ?? null) !== (job.evidence ?? null);
       next[url] = {
         ...job,
         pid: undefined,
@@ -95,7 +99,7 @@ export function plan(
         state: ok ? "done" : job.attempts >= MAX_ATTEMPTS ? "exhausted" : "waiting",
         next_at: ok ? undefined : new Date(now + BACKOFF_MS).toISOString(),
       };
-    } else next[url] = { ...job, priority: t.priority, scope: t.scope };
+    } else next[url] = { ...job, priority: t.priority, scope: t.scope, evidence: t.evidence };
   }
   for (const t of wanted)
     if (!next[t.url]) next[t.url] = { ...t, state: "waiting", attempts: 0, enqueued_at: iso };

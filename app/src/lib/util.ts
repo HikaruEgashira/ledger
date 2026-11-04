@@ -132,6 +132,7 @@ export const isErrno = (e: unknown): e is NodeJS.ErrnoException =>
 
 const LOCK_POLL_MS = 50;
 const LOCK_ORPHAN_MS = 10_000;
+const LOCK_SLOW_MS = 5_000;
 function statMtime(path: string): number {
   try {
     return statSync(path).mtimeMs;
@@ -153,6 +154,8 @@ function pidAlive(pid: number): boolean {
 /** Exclusive ledger lock (`<ledger>.lock.d` + owner pid). */
 export function withLedgerLock<T>(ledger: string, fn: () => T): T {
   const dir = ledger + ".lock.d";
+  const asked = Date.now();
+  let blocker = 0;
   for (;;) {
     try {
       mkdirSync(dir);
@@ -169,12 +172,23 @@ export function withLedgerLock<T>(ledger: string, fn: () => T): T {
       }
       if (owner === 0 || (Number.isInteger(owner) && owner > 0 && !pidAlive(owner)))
         rmSync(dir, { recursive: true, force: true });
-      else sleepSync(LOCK_POLL_MS);
+      else {
+        if (Number.isInteger(owner)) blocker = owner;
+        sleepSync(LOCK_POLL_MS);
+      }
     }
   }
+  const acquired = Date.now();
   try {
     return fn();
   } finally {
     rmSync(dir, { recursive: true, force: true });
+    const waited = acquired - asked;
+    const held = Date.now() - acquired;
+    if (waited >= LOCK_SLOW_MS || held >= LOCK_SLOW_MS)
+      console.error(
+        `ledger-lock: pid=${process.pid} waited=${(waited / 1000).toFixed(1)}s held=${(held / 1000).toFixed(1)}s` +
+          (waited >= LOCK_SLOW_MS ? ` blocker=${blocker}` : ""),
+      );
   }
 }

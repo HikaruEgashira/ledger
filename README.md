@@ -28,7 +28,8 @@ scripts/install-launchd.sh
   追加に個別のユーザー確認は不要です。scope 定義の外で、team/CODEOWNERS、
   作者、ラベル、リポジトリ名などから候補集合を推測・拡張しません。
 - launchd の `review-request-sync`（direct request）と `review-team-poller`（scope）が 10 分ごとに intake します。worker の起動は `serve` の queue（`app/src/queue.ts`）だけが行い、poller は起動しません。
-- queue は 15 秒ごとに、`queued` の scope 行・direct request 行と、承認後検証が `pending` の行を対象にします。draft の PR は対象外で、実行も失敗計上もしません。同時実行は 50 までです。worker 終了後も行が対象のままなら失敗として 10 分後に再実行し、同じ head で 3 回失敗すると `exhausted` になり、新しい head まで止めます。状態は `logs/queue.json` に保存します。
+- queue は 15 秒ごとに、`queued` の scope 行・direct request 行と、承認後検証が `pending` の行を対象にします。draft の PR は対象外で、実行も失敗計上もしません。同時実行は 50 までです。worker が非 0 で終了した場合、または exit 0 でも `record` で証跡（`evidence_sha256`）を更新していない場合は失敗として 10 分後に再実行し、同じ head で 3 回失敗すると `exhausted` になり、新しい head まで止めます。状態は `logs/queue.json` に保存します。
+- 全件 sync（`monitor`・`sync`・`review-requests.ts sync`）は GitHub の取得を台帳 lock の外で行い、lock 内では取得中に変更されなかった行へ結果を適用するだけです。lock の待ち・保持が 5 秒以上なら stderr に `ledger-lock:` を出します。
 - ready の PR が draft に戻った場合、`sync` は `DRAFTED` を出し、判定と証跡をリセットして `queued` に戻し、既存の承認は再検証待ち（`pending`）にします。ready に戻ると queue が再レビューします。
 - このワークスペースはレビュー専用です。リモートへの commit、branch、tag の push は禁止で、review PR の head branch への通常 push、amend、force-push も行いません。検証済みの復旧で forward-fix が必要な場合は、個別確認なしで別の実装 checkout から新規 branch・別 PR として、signed commit と通常の non-force push で公開できます。
 - リポジトリの内容は `repositories/<owner>/<repo>` のローカル checkout から読みます。存在しない場合は通常の Git tooling で取得し、コンテンツ取得に `gh api` は使いません。

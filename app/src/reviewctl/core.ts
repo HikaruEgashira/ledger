@@ -1100,13 +1100,16 @@ export interface Outage {
 
 export const OUTAGE_PROBE_MS = 10 * 60 * 1000;
 
+export const outageProbeDue = (outage: Outage | null, nowMs: number): boolean =>
+  !outage || nowMs - outage.last_probe_ms >= OUTAGE_PROBE_MS;
+
 /** Monitor-only outage gate: one SYNC_UNAVAILABLE per distinct outage, GitHub probes throttled while it lasts. */
 export function monitorWithOutage(
   outage: Outage | null,
   nowMs: number,
   sync: () => Event[],
 ): { events: Event[]; outage: Outage | null } {
-  if (outage && nowMs - outage.last_probe_ms < OUTAGE_PROBE_MS) return { events: [], outage };
+  if (!outageProbeDue(outage, nowMs)) return { events: [], outage };
   const events = sync();
   const down = events.find((e) => e.event === "SYNC_UNAVAILABLE");
   if (!down) return { events, outage: null };
@@ -1163,6 +1166,39 @@ export function syncRows(
     }
   }
   return events;
+}
+
+type Outcome = { live: Obj } | { error: unknown };
+
+/**
+ * Full-ledger sync split so GitHub is fetched without the ledger lock (call on an unlocked read);
+ * the returned apply replays those fetches under the lock on a fresh read.
+ */
+export function prefetchSync(rows: Obj[], viewer: Viewer = (u) => ghView(u)): (fresh: Obj[]) => Event[] {
+  const before = new Map(rows.map((r) => [r.url as string, stableStringify(r)]));
+  const outcomes = new Map<string, Outcome[]>();
+  syncRows(structuredClone(rows), null, (url) => {
+    const log = outcomes.get(url) ?? [];
+    outcomes.set(url, log);
+    try {
+      const live = viewer(url);
+      log.push({ live });
+      return live;
+    } catch (error) {
+      log.push({ error });
+      throw error;
+    }
+  });
+  return (fresh) => {
+    // Rows another writer changed during the fetch keep their state until the next pass.
+    const same = fresh.filter((r) => outcomes.has(r.url) && before.get(r.url) === stableStringify(r));
+    return syncRows(same, null, (url) => {
+      const next = outcomes.get(url)?.shift();
+      if (!next) throw new GhTimeout(`no prefetched live state: ${url}`);
+      if ("error" in next) throw next.error;
+      return next.live;
+    });
+  };
 }
 
 export function resolveArtifactPath(raw: string, root = ROOT): [string, string] {

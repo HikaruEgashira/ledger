@@ -42,14 +42,25 @@ describe("queue plan", () => {
 });
 
 describe("queue completion", () => {
-  it("treats a clean exit as done until the PR changes", () => {
+  const recorded = (n: number, evidence: string | null): Target => ({ ...T(n), evidence });
+  it("treats a clean exit with a recorded verdict as done until the PR changes", () => {
     const r = plan({}, [T(1)], 0, dead);
     r.start[0].pid = 5;
     r.start[0].exit_code = 0;
-    const settled = plan(r.queue, [T(1)], 1, dead);
+    const settled = plan(r.queue, [recorded(1, "sha-new")], 1, dead);
     expect(settled.queue[T(1).url].state).toBe("done");
     expect(plan(settled.queue, [T(1)], 1 + BACKOFF_MS, dead).start).toEqual([]);
     expect(plan(settled.queue, [T(1, "h1", "u2")], 2, dead).start.length).toBe(1);
+  });
+  it("retries a clean exit that recorded no verdict", () => {
+    for (const [before, after] of [[null, null], ["sha-old", "sha-old"]]) {
+      const r = plan({}, [recorded(1, before)], 0, dead);
+      r.start[0].pid = 5;
+      r.start[0].exit_code = 0;
+      const job = plan(r.queue, [recorded(1, after)], 1, dead).queue[T(1).url];
+      expect(job.state).toBe("waiting");
+      expect(job.next_at).toBe(new Date(1 + BACKOFF_MS).toISOString());
+    }
   });
   it("retries a crash", () => {
     const r = plan({}, [T(1)], 0, dead);
@@ -68,6 +79,7 @@ describe("queue targets", () => {
     expect(targets([row({ status: "queued", intake: {} })]).length).toBe(0);
     expect(targets([row({ status: "queued", live: { headRefOid: "h", isDraft: true } })]).length).toBe(0);
     expect(targets([row({ status: "queued", intake: {}, review_request: { active: true } })])[0].scope).toBe("direct");
+    expect(targets([row({ status: "queued", evidence_sha256: "e" })])[0].evidence).toBe("e");
   });
 });
 
@@ -78,7 +90,7 @@ describe("queue exit files", () => {
   it("recovers a clean exit lost by a server restart, so it is not retried", () => {
     const q = settleExits(job("running"), () => "0\n");
     expect(q.u.exit_code).toBe(0);
-    const { queue, start } = plan(q, [{ url: "u", scope: "s", head: "h", updated: "t", priority: 50 }], 0, () => false);
+    const { queue, start } = plan(q, [{ url: "u", scope: "s", head: "h", updated: "t", priority: 50, evidence: "e" }], 0, () => false);
     expect(queue.u.state).toBe("done");
     expect(start).toEqual([]);
   });
