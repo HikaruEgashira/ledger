@@ -33,6 +33,8 @@ import {
   STATUS_FOR_ACTION,
   syncRows,
   monitorWithOutage,
+  outageProbeDue,
+  prefetchSync,
   validateArtifact,
   validateLive,
   writeLedger,
@@ -146,9 +148,10 @@ export function commandNext(args: Args): void {
 
 export function commandSync(args: Args): void {
   let rows: Obj[] = [];
+  const apply = args.url ? null : prefetchSync(readLedger(args.ledger));
   const events = withLedgerLock(args.ledger, () => {
     rows = readLedger(args.ledger);
-    const out = syncRows(rows, args.url ?? null);
+    const out = apply ? apply(rows) : syncRows(rows, args.url);
     writeLedger(args.ledger, rows);
     return out;
   });
@@ -1095,11 +1098,13 @@ export function commandRecover(args: Args): void {
 }
 
 export function monitorTick(ledger: string): Event[] {
+  const marker = join(dirname(resolve(ledger)), "logs", "sync-outage.json");
+  const prior = existsSync(marker) ? JSON.parse(readFileSync(marker, "utf8")) : null;
+  const now = Date.now();
+  const apply = outageProbeDue(prior, now) ? prefetchSync(readLedger(ledger), (url) => ghView(url, 15)) : () => [];
   return withLedgerLock(ledger, () => {
     const rows = readLedger(ledger);
-    const marker = join(dirname(resolve(ledger)), "logs", "sync-outage.json");
-    const prior = existsSync(marker) ? JSON.parse(readFileSync(marker, "utf8")) : null;
-    const { events, outage } = monitorWithOutage(prior, Date.now(), () => syncRows(rows, null, (url) => ghView(url, 15)));
+    const { events, outage } = monitorWithOutage(prior, now, () => apply(rows));
     if (outage) {
       mkdirSync(dirname(marker), { recursive: true });
       writeFileSync(marker, JSON.stringify(outage));

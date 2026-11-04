@@ -21,8 +21,8 @@ import {
   ghView,
   isSha,
   newRow,
+  prefetchSync,
   readLedger,
-  syncRows,
   writeLedger,
 } from "./reviewctl/core.ts";
 
@@ -301,9 +301,10 @@ function fetchCandidates(login: string, qualifier: string, match: Matcher): Obj[
 }
 
 function syncLedger(): void {
+  const apply = prefetchSync(readLedger(DEFAULT_LEDGER));
   const events = withLedgerLock(DEFAULT_LEDGER, () => {
     const rows = readLedger(DEFAULT_LEDGER);
-    const out = syncRows(rows, null);
+    const out = apply(rows);
     writeLedger(DEFAULT_LEDGER, rows);
     return [...out, { event: "SYNC_COMPLETE", records: rows.length }];
   });

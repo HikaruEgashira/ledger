@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   ReviewCtlError,
 } from "../lib/util.ts";
-import { GhTimeout, monitorWithOutage, OUTAGE_PROBE_MS, syncRows } from "./core.ts";
+import { GhTimeout, monitorWithOutage, OUTAGE_PROBE_MS, outageProbeDue, prefetchSync, syncRows } from "./core.ts";
 
 const row = (n: number) => ({ url: `https://github.com/example-org/x/pull/${n}`, status: "queued" });
 const stall = () => {
@@ -117,5 +117,50 @@ describe("monitorWithOutage", () => {
     const ok = { event: "PR_UPDATED", url: "u" };
     const r = monitorWithOutage({ error: down.error, last_probe_ms: 0 }, OUTAGE_PROBE_MS, () => [ok]);
     expect(r).toEqual({ events: [ok], outage: null });
+  });
+});
+
+describe("prefetchSync", () => {
+  const boom = () => {
+    calls++;
+    throw new ReviewCtlError("boom");
+  };
+  let calls = 0;
+  it("fetches before apply and replays the results without calling GitHub again", () => {
+    calls = 0;
+    const apply = prefetchSync([row(1)], boom);
+    expect(calls).toBe(1);
+    const fresh = [row(1)];
+    expect(apply(fresh)[0]).toMatchObject({ event: "SYNC_FAILED", error: "boom" });
+    expect(fresh[0]).toMatchObject({ status: "error", last_error: "boom" });
+    expect(calls).toBe(1);
+  });
+  it("replays a timeout retry in order", () => {
+    let n = 0;
+    const apply = prefetchSync([row(1)], () => {
+      if (!n++) stall();
+      throw new ReviewCtlError("boom");
+    });
+    expect(apply([row(1)])[0]).toMatchObject({ event: "SYNC_FAILED", error: "boom" });
+  });
+  it("leaves rows changed or added during the fetch for the next pass", () => {
+    calls = 0;
+    const apply = prefetchSync([row(1)], boom);
+    const fresh = [{ ...row(1), decision: { action: "wait_ci" } }, row(2)];
+    expect(apply(fresh)).toEqual([]);
+    expect(fresh.map((r) => r.status)).toEqual(["queued", "queued"]);
+  });
+  it("does not mutate the unlocked snapshot", () => {
+    const snapshot = [row(1)];
+    prefetchSync(snapshot, boom);
+    expect(snapshot[0]).toEqual(row(1));
+  });
+});
+
+describe("outageProbeDue", () => {
+  it("probes without an outage or once the throttle elapses", () => {
+    expect(outageProbeDue(null, 0)).toBe(true);
+    expect(outageProbeDue({ error: "x", last_probe_ms: 0 }, OUTAGE_PROBE_MS - 1)).toBe(false);
+    expect(outageProbeDue({ error: "x", last_probe_ms: 0 }, OUTAGE_PROBE_MS)).toBe(true);
   });
 });
