@@ -11,6 +11,7 @@ import {
 export const ROOT = resolve(import.meta.dir, "../..");
 export const OVERLAP_MS = 5 * 60 * 1000;
 export const MIN_REMAINING = 500;
+export const FULL_SWEEP_MS = 6 * 60 * 60 * 1000;
 const SOURCE = "review-poller";
 export const QUERY = `
 query($q: String!, $cursor: String) {
@@ -94,31 +95,36 @@ const isoUtc = (d: Date) => d.toISOString().replace("Z", "+00:00");
 const sinceStamp = (cursor: string) =>
   new Date(Date.parse(cursor.trim().replace(/(\.\d{3})\d+/, "$1")) - OVERLAP_MS).toISOString().replace(/\.\d{3}Z$/, "Z");
 
-export type PollOpts = { root?: string; dryRun?: boolean; gh?: Gh; enqueue?: Enqueue; now?: Date; config?: Record<string, any>; orgName?: string };
+const ledgerUrls = (root: string): Set<string> => {
+  const p = join(root, "pull_requests.jsonl");
+  if (!existsSync(p)) return new Set();
+  return new Set(readFileSync(p, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l).url));
+};
+
+export type PollOpts = { root?: string; dryRun?: boolean; full?: boolean; gh?: Gh; enqueue?: Enqueue; now?: Date; config?: Record<string, any>; orgName?: string };
 
 export function poll(opts: PollOpts = {}): string {
   const root = opts.root ?? ROOT;
   const dir = join(root, "logs/review-poller");
   const state = join(dir, "heads.json");
   const cursor = join(dir, "last_poll.txt");
+  const sweep = join(dir, "last_full_sweep.txt");
   const orgName = opts.orgName ?? org();
   mkdirSync(dir, { recursive: true });
   const previous: Record<string, string> = existsSync(state) ? JSON.parse(readFileSync(state, "utf8")) : {};
   const started = opts.now ?? new Date();
-  const since = existsSync(cursor) && !opts.dryRun ? sinceStamp(readFileSync(cursor, "utf8")) : null;
-  // Incremental polls only fetch PRs updated since the last poll, usually 0 nodes.
+  const lastFull = existsSync(sweep) ? Date.parse(readFileSync(sweep, "utf8").trim().replace(/(\.\d{3})\d+/, "$1")) : NaN;
+  // Full sweeps catch PRs never updated since a scope was added or the poller was down.
+  const full = opts.full || opts.dryRun || !existsSync(cursor) || !(started.getTime() - lastFull < FULL_SWEEP_MS);
+  const since = full ? null : sinceStamp(readFileSync(cursor, "utf8"));
   const config = opts.config ?? localConfig(join(root, "config/config.toml"));
   const scopes = loadScopes(config, root, orgName, join(root, "config/config.toml"));
   const current = fetchOpenPrs(scopes, since, opts.gh, orgName);
   const heads = (skip = new Set<string>()) =>
     Object.fromEntries([...current].filter(([u]) => !skip.has(u)).map(([u, [h]]) => [u, h]));
-  if (!existsSync(state) && !opts.dryRun) {
-    // First run only records a baseline so pre-existing PRs are not bulk-queued.
-    writeFileSync(state, JSON.stringify(heads(), null, 2));
-    writeFileSync(cursor, isoUtc(started));
-    return stableStringify({ open: current.size, baseline: true });
-  }
-  const changed = [...current].filter(([u, [h]]) => previous[u] !== h).map(([u]) => u);
+  const listed = full ? ledgerUrls(root) : new Set<string>();
+  // intakectl is a no-op for listed URLs, so full sweeps only enqueue unlisted ones.
+  const changed = [...current].filter(([u, [h]]) => (full ? !listed.has(u) : previous[u] !== h)).map(([u]) => u);
   if (opts.dryRun)
     return JSON.stringify({ open: current.size, changed: Object.fromEntries(changed.map((u) => [u, current.get(u)![1]])) }, null, 2);
   const enqueue = opts.enqueue ?? runEnqueue(root);
@@ -126,19 +132,22 @@ export function poll(opts: PollOpts = {}): string {
   // Failed intakes stay out of state so the next poll retries them.
   const failed = new Set(changed.filter((u) => !queued.includes(u)));
   writeFileSync(state, JSON.stringify({ ...previous, ...heads(failed) }, null, 2));
-  if (!failed.size) writeFileSync(cursor, isoUtc(started));
+  if (!failed.size) {
+    writeFileSync(cursor, isoUtc(started));
+    if (full) writeFileSync(sweep, isoUtc(started));
+  }
   // Worker dispatch, retries and concurrency live in reviewctl serve (app/src/queue.ts).
-  return stableStringify({ open: current.size, queued });
+  return stableStringify({ full, open: current.size, queued });
 }
 
 export function main(argv: string[]): number {
-  const unknown = argv.filter((a) => a !== "--dry-run");
+  const unknown = argv.filter((a) => a !== "--dry-run" && a !== "--full");
   if (unknown.length) {
-    console.error(`usage: review-poller.ts [--dry-run]\nreview-poller.ts: error: unrecognized arguments: ${unknown.join(" ")}`);
+    console.error(`usage: review-poller.ts [--dry-run] [--full]\nreview-poller.ts: error: unrecognized arguments: ${unknown.join(" ")}`);
     return 2;
   }
   try {
-    console.log(poll({ dryRun: argv.includes("--dry-run") }));
+    console.log(poll({ dryRun: argv.includes("--dry-run"), full: argv.includes("--full") }));
     return 0;
   } catch (e) {
     if (e instanceof PollerExit) {
