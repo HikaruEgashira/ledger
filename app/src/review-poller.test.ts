@@ -54,13 +54,26 @@ describe("loadScopes", () => {
 describe("poll", () => {
   const base = (root: string) => ({ root, config: structuredClone(config), orgName: ORG });
 
-  it("records a baseline on first run without enqueueing", () => {
+  it("first run is a full sweep that enqueues in-scope PRs missing from the ledger", () => {
     const root = workspace();
+    writeFileSync(join(root, "pull_requests.jsonl"), JSON.stringify({ url: url(1) }) + "\n");
+    const { gh, calls } = fakeGh([{ a: [[url(1), "h1"], [url(2), "h2"]] }]);
+    const out = poll({ ...base(root), gh, enqueue: () => true, now: new Date("2026-11-03T00:00:00Z") });
+    expect(out).toBe(`{"full":true,"open":2,"queued":["${url(2)}"]}`);
+    expect(calls[0].some((a) => a.includes("updated:"))).toBe(false);
+    expect(readFileSync(join(root, "logs/review-poller/last_full_sweep.txt"), "utf8")).toBe("2026-11-03T00:00:00.000+00:00");
+  });
+
+  it("full sweep re-enqueues stale PRs known to state but absent from the ledger", () => {
+    const root = workspace();
+    const dir = join(root, "logs/review-poller");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "heads.json"), JSON.stringify({ [url(1)]: "h1" }));
+    writeFileSync(join(dir, "last_poll.txt"), "2026-11-03T00:10:00+00:00");
+    writeFileSync(join(dir, "last_full_sweep.txt"), "2026-11-02T00:00:00+00:00");
     const { gh } = fakeGh([{ a: [[url(1), "h1"]] }]);
-    const out = poll({ ...base(root), gh, enqueue: () => { throw new Error("no"); }, now: new Date("2026-11-03T00:00:00Z") });
-    expect(out).toBe('{"baseline":true,"open":1}');
-    expect(JSON.parse(readFileSync(join(root, "logs/review-poller/heads.json"), "utf8"))).toEqual({ [url(1)]: "h1" });
-    expect(readFileSync(join(root, "logs/review-poller/last_poll.txt"), "utf8")).toBe("2026-11-03T00:00:00.000+00:00");
+    const out = poll({ ...base(root), gh, enqueue: () => true, now: new Date("2026-11-03T00:20:00Z") });
+    expect(out).toBe(`{"full":true,"open":1,"queued":["${url(1)}"]}`);
   });
 
   it("enqueues changed heads incrementally, paginates, and keeps failures for retry", () => {
@@ -69,9 +82,10 @@ describe("poll", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "heads.json"), JSON.stringify({ [url(1)]: "h1", [url(9)]: "h9" }));
     writeFileSync(join(dir, "last_poll.txt"), "2026-11-03T00:10:00.123456+00:00");
+    writeFileSync(join(dir, "last_full_sweep.txt"), "2026-11-03T00:00:00+00:00");
     const { gh, calls } = fakeGh([{ a: [[url(1), "h1"], [url(2), "h2"]] }, { a: [[url(3), "h3"]] }]);
     const out = poll({ ...base(root), gh, enqueue: (u) => u !== url(3), now: new Date("2026-11-03T00:20:00Z") });
-    expect(out).toBe(`{"open":3,"queued":["${url(2)}"]}`);
+    expect(out).toBe(`{"full":false,"open":3,"queued":["${url(2)}"]}`);
     expect(calls[0]).toContain(`q=repo:${ORG}/repo -author:me is:pr is:open updated:>=2026-11-03T00:05:00Z`);
     expect(calls[1].slice(-2)).toEqual(["-f", "cursor=c1"]);
     expect(JSON.parse(readFileSync(join(dir, "heads.json"), "utf8"))).toEqual({ [url(1)]: "h1", [url(9)]: "h9", [url(2)]: "h2" });
