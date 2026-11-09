@@ -110,9 +110,10 @@ export function plan(
     } else next[url] = { ...job, priority: t.priority, scope: t.scope, evidence: t.evidence };
   }
   // A worker just succeeded, so the host (tokens, network) works again: retry jobs that exhausted during an outage.
+  // A clean exit without evidence is the worker's own hold (CI red, open threads), not an outage, so it stays exhausted.
   if (succeeded)
     for (const j of Object.values(next))
-      if (j.state === "exhausted" && (j.revivals ?? 0) < MAX_REVIVALS)
+      if (j.state === "exhausted" && j.exit_code !== 0 && (j.revivals ?? 0) < MAX_REVIVALS)
         Object.assign(j, { state: "waiting", attempts: 0, next_at: undefined, revivals: (j.revivals ?? 0) + 1 });
   for (const t of wanted)
     if (!next[t.url]) next[t.url] = { ...t, state: "waiting", attempts: 0, enqueued_at: iso };

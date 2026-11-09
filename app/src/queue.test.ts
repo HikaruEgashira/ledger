@@ -120,4 +120,8 @@ describe("queue outage recovery", () => {
     expect(plan({ ...exhausted(), ...finishing(1) }, [T(1), T(2)], 1, dead).queue[T(1).url].state).toBe("exhausted");
     expect(plan({ ...exhausted(MAX_REVIVALS), ...finishing(0) }, [T(1)], 1, dead).queue[T(1).url].state).toBe("exhausted");
   });
+  it("keeps jobs exhausted by clean verdict-less exits, since the worker held them on purpose", () => {
+    const held: Queue = { [T(1).url]: { ...exhausted()[T(1).url], exit_code: 0 } };
+    expect(plan({ ...held, ...finishing(0) }, [T(1)], 1, dead).queue[T(1).url].state).toBe("exhausted");
+  });
 });
