@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { BACKOFF_MS, MAX_ATTEMPTS, plan, settleExits, targets, type Queue, type Target } from "./queue.ts";
+import { BACKOFF_MS, MAX_ATTEMPTS, MAX_REVIVALS, plan, settleExits, targets, type Queue, type Target } from "./queue.ts";
 
 const T = (n: number, head = "h1", updated = "u1"): Target => ({ url: `https://github.com/example-org/r/pull/${n}`, scope: "s", head, updated, priority: 50 });
 const dead = () => false;
@@ -99,5 +99,25 @@ describe("queue exit files", () => {
     expect(settleExits(job("running"), () => null).u.exit_code).toBeUndefined();
     expect(settleExits(job("running"), () => "x").u.exit_code).toBeUndefined();
     expect(settleExits(job("done"), () => "0").u.exit_code).toBeUndefined();
+  });
+});
+
+describe("queue outage recovery", () => {
+  const exhausted = (revivals = 0): Queue => ({ [T(1).url]: { ...T(1), state: "exhausted", attempts: MAX_ATTEMPTS, enqueued_at: "", revivals } });
+  const finishing = (code: number): Queue => {
+    const r = plan({}, [T(2)], 0, dead);
+    r.start[0].pid = 7;
+    r.start[0].exit_code = code;
+    return r.queue;
+  };
+  it("revives exhausted jobs once another worker succeeds", () => {
+    const r = plan({ ...exhausted(), ...finishing(0) }, [T(1)], 1, dead);
+    expect(r.start.map((j) => j.url)).toEqual([T(1).url]);
+    expect(r.start[0].attempts).toBe(1);
+    expect(r.queue[T(1).url].revivals).toBe(1);
+  });
+  it("keeps exhausted jobs while workers still fail or the revival budget is spent", () => {
+    expect(plan({ ...exhausted(), ...finishing(1) }, [T(1), T(2)], 1, dead).queue[T(1).url].state).toBe("exhausted");
+    expect(plan({ ...exhausted(MAX_REVIVALS), ...finishing(0) }, [T(1)], 1, dead).queue[T(1).url].state).toBe("exhausted");
   });
 });

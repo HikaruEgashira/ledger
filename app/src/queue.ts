@@ -1,6 +1,6 @@
 // node:child_process: Bun.spawn cannot detach workers into their own process group.
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { exec } from "./lib/util.ts";
 import { escapeRe, localConfig, org } from "./lib/org.ts";
@@ -8,6 +8,8 @@ import { escapeRe, localConfig, org } from "./lib/org.ts";
 export const CONCURRENCY = 50;
 export const MAX_ATTEMPTS = 3;
 export const BACKOFF_MS = 10 * 60_000;
+/** Times an exhausted job gets a fresh budget after another worker succeeds (outage recovered). */
+export const MAX_REVIVALS = 3;
 const POLLER_SOURCE = "review-poller";
 const LEGACY_REASON = "team poller";
 const DIRECT = "direct";
@@ -28,6 +30,7 @@ export interface Job {
   next_at?: string;
   exit_code?: number | null;
   evidence?: string | null;
+  revivals?: number;
 }
 export type Queue = Record<string, Job>;
 type Row = Record<string, any>;
@@ -80,13 +83,17 @@ export function plan(
   const iso = new Date(now).toISOString();
   const want = new Map(wanted.map((t) => [t.url, t]));
   const next: Queue = {};
+  let succeeded = false;
   for (const [url, job] of Object.entries(queue)) {
     const t = want.get(url);
     if (job.state === "running" && job.pid && alive(job.pid)) {
       next[url] = job;
       continue;
     }
-    if (!t) continue; // processed: the row left the queue
+    if (!t) {
+      succeeded ||= job.state === "running" && job.exit_code === 0;
+      continue; // processed: the row left the queue
+    }
     // A new head or PR activity (e.g. resolved threads) is new work with a fresh budget.
     if (t.head !== job.head || t.updated !== job.updated) continue;
     if (job.state === "running") {
@@ -99,8 +106,14 @@ export function plan(
         state: ok ? "done" : job.attempts >= MAX_ATTEMPTS ? "exhausted" : "waiting",
         next_at: ok ? undefined : new Date(now + BACKOFF_MS).toISOString(),
       };
+      succeeded ||= ok;
     } else next[url] = { ...job, priority: t.priority, scope: t.scope, evidence: t.evidence };
   }
+  // A worker just succeeded, so the host (tokens, network) works again: retry jobs that exhausted during an outage.
+  if (succeeded)
+    for (const j of Object.values(next))
+      if (j.state === "exhausted" && (j.revivals ?? 0) < MAX_REVIVALS)
+        Object.assign(j, { state: "waiting", attempts: 0, next_at: undefined, revivals: (j.revivals ?? 0) + 1 });
   for (const t of wanted)
     if (!next[t.url]) next[t.url] = { ...t, state: "waiting", attempts: 0, enqueued_at: iso };
   const running = Object.values(next).filter((j) => j.state === "running").length;
@@ -198,22 +211,34 @@ export function tick(root: string, rows: Row[], now = Date.now()): Job[] {
   const q = settleExits(readQueue(root), readExit(root));
   const { queue, start } = plan(q, targets(rows), now, (pid) => workerAlive(pid, q));
   const log = openSync(join(root, "logs/review-poller/worker.log"), "a");
-  for (const job of start) {
-    const exit = exitPath(root, job.url);
-    mkdirSync(join(exit, ".."), { recursive: true });
-    rmSync(exit, { force: true });
-    const child = spawn("/bin/sh", ["-c", '"$@"; echo $? > "$QUEUE_EXIT_FILE"', "sh", ...argv(root, job)], {
-      cwd: root,
-      stdio: ["ignore", log, log],
-      detached: true,
-      env: { ...process.env, QUEUE_EXIT_FILE: exit },
-    });
-    child.on("error", (e) => console.error(`error: queue spawn ${job.url}: ${e.message}`));
-    child.on("exit", (code) => recordExit(root, job.url, child.pid, code));
-    child.unref();
-    job.pid = child.pid;
-    console.log(JSON.stringify({ event: "QUEUE_STARTED", url: job.url, attempt: job.attempts, at: new Date(now).toISOString() }));
+  let failure: Error | null = null;
+  try {
+    for (const job of start) {
+      try {
+        const exit = exitPath(root, job.url);
+        mkdirSync(join(exit, ".."), { recursive: true });
+        rmSync(exit, { force: true });
+        const child = spawn("/bin/sh", ["-c", '"$@"; echo $? > "$QUEUE_EXIT_FILE"', "sh", ...argv(root, job)], {
+          cwd: root,
+          stdio: ["ignore", log, log],
+          detached: true,
+          env: { ...process.env, QUEUE_EXIT_FILE: exit },
+        });
+        child.on("error", (e) => console.error(`error: queue spawn ${job.url}: ${e.message}`));
+        child.on("exit", (code) => recordExit(root, job.url, child.pid, code));
+        child.unref();
+        job.pid = child.pid;
+        console.log(JSON.stringify({ event: "QUEUE_STARTED", url: job.url, attempt: job.attempts, at: new Date(now).toISOString() }));
+      } catch (e) {
+        // A spawn failure is the host's fault, not the PR's: give the attempt back.
+        Object.assign(job, { state: "waiting", attempts: job.attempts - 1, started_at: undefined });
+        failure ??= e as Error;
+      }
+    }
+  } finally {
+    closeSync(log);
   }
   writeQueue(root, queue);
+  if (failure) throw failure;
   return start;
 }
