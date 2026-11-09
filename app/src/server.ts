@@ -37,12 +37,20 @@ async function monitorTick(): Promise<void> {
   }
 }
 // Dispatch runs on its own cadence so a slow ledger sync never delays starting workers.
+// Consecutive failures mean a broken process (e.g. EBADF); exit so launchd KeepAlive restarts it.
+const MAX_TICK_FAILURES = 5;
 async function queueLoop() {
+  let failures = 0;
   for (;;) {
     try {
       tick(ROOT, readLedger(args.ledger));
+      failures = 0;
     } catch (e) {
       console.error(`error: queue tick: ${(e as Error).message}`);
+      if (++failures >= MAX_TICK_FAILURES) {
+        console.error(`fatal: queue tick failed ${failures} times in a row; exiting for restart`);
+        process.exit(1);
+      }
     }
     await Bun.sleep(15_000);
   }

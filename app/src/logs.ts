@@ -156,7 +156,7 @@ export function alerts(root: string, rows: readonly LedgerRowLike[], now = new D
   const queue: Record<string, any> = existsSync(qp) ? JSON.parse(readFileSync(qp, "utf8")) : {};
   for (const j of Object.values(queue))
     if (j.state === "exhausted")
-      out.push({ source: "alert", level: "error", ts: j.finished_at ?? now, url: j.url, msg: `queue retry exhausted (${j.attempts}/${MAX_RETRIES}); waiting for a new head` });
+      out.push({ source: "alert", level: "error", ts: j.finished_at ?? now, url: j.url, msg: `queue retry exhausted (${j.attempts}/${MAX_RETRIES}); waiting for a new head or another worker to succeed` });
   for (const r of rows)
     if (r.last_error)
       out.push({ source: "alert", level: "error", ts: r.last_synced_at ?? now, url: r.url, msg: `ledger last_error: ${JSON.stringify(r.last_error)}` });
