@@ -52,14 +52,14 @@ describe("queue completion", () => {
     expect(plan(settled.queue, [T(1)], 1 + BACKOFF_MS, dead).start).toEqual([]);
     expect(plan(settled.queue, [T(1, "h1", "u2")], 2, dead).start.length).toBe(1);
   });
-  it("retries a clean exit that recorded no verdict", () => {
+  it("treats a clean exit without new evidence as a hold that waits for a PR change", () => {
     for (const [before, after] of [[null, null], ["sha-old", "sha-old"]]) {
       const r = plan({}, [recorded(1, before)], 0, dead);
       r.start[0].pid = 5;
       r.start[0].exit_code = 0;
-      const job = plan(r.queue, [recorded(1, after)], 1, dead).queue[T(1).url];
-      expect(job.state).toBe("waiting");
-      expect(job.next_at).toBe(new Date(1 + BACKOFF_MS).toISOString());
+      const q = plan(r.queue, [recorded(1, after)], 1, dead).queue;
+      expect(q[T(1).url].state).toBe("done");
+      expect(plan(q, [recorded(1, after)], 1 + BACKOFF_MS, dead).start).toEqual([]);
     }
   });
   it("retries a crash", () => {
@@ -119,9 +119,5 @@ describe("queue outage recovery", () => {
   it("keeps exhausted jobs while workers still fail or the revival budget is spent", () => {
     expect(plan({ ...exhausted(), ...finishing(1) }, [T(1), T(2)], 1, dead).queue[T(1).url].state).toBe("exhausted");
     expect(plan({ ...exhausted(MAX_REVIVALS), ...finishing(0) }, [T(1)], 1, dead).queue[T(1).url].state).toBe("exhausted");
-  });
-  it("keeps jobs exhausted by clean verdict-less exits, since the worker held them on purpose", () => {
-    const held: Queue = { [T(1).url]: { ...exhausted()[T(1).url], exit_code: 0 } };
-    expect(plan({ ...held, ...finishing(0) }, [T(1)], 1, dead).queue[T(1).url].state).toBe("exhausted");
   });
 });
