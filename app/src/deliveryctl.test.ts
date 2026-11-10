@@ -49,13 +49,13 @@ function plan(mode: "github-actions" | "not_applicable") {
       };
 }
 
-function seed(mode: "github-actions" | "not_applicable", mergeSha: string, status = "merged_waiting_release") {
+function seed(mode: "github-actions" | "not_applicable", mergeSha: string, status = "merged_waiting_release", mergedMin = 180) {
   const p = plan(mode);
   const row = {
     ...newRow(URL, 50),
     status,
     approval: { base_sha: A, head_sha: B, delivery_plan: p, delivery_plan_sha256: deliveryPlanDigest(p) },
-    delivery: { merge: { commit_sha: mergeSha, merged_at: ago(180) } },
+    delivery: { merge: { commit_sha: mergeSha, merged_at: ago(mergedMin) } },
   };
   writeLedger(ledger, [row]);
 }
@@ -101,6 +101,14 @@ describe("deliveryctl", () => {
     expect(run("due", "--auto")).toBe(0);
     expect(lastJson()).toEqual({ action: "completed", url: URL });
     expect(readLedger(ledger)[0].status).toBe("completed");
+  });
+
+  it("gives up monitoring deliveries merged more than 3 days ago", () => {
+    seed("github-actions", A, "post_release_monitoring", 4 * 24 * 60);
+    expect(run("due", "--auto")).toBe(0);
+    expect(run("due")).toBe(0);
+    expect(out).toEqual([]);
+    expect(readLedger(ledger)[0].last_error).toContain("gave up");
   });
 
   it("records a GitHub Actions release and observation, then completes", () => {

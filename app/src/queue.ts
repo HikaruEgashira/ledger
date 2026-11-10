@@ -13,6 +13,7 @@ export const MAX_REVIVALS = 3;
 const POLLER_SOURCE = "review-poller";
 const LEGACY_REASON = "team poller";
 const DIRECT = "direct";
+const UNLANDED_APPROVALS = new Set(["write-rejected", "write-outcome-unknown"]);
 
 export type JobState = "waiting" | "running" | "done" | "exhausted";
 export interface Job {
@@ -62,9 +63,11 @@ export function targets(rows: Row[]): Target[] {
     const updated = r.live?.updatedAt ?? "";
     const approvedHead = r.approval?.head_sha;
     const verifying = r.approval?.verification === "pending";
+    // A rejected or unknown approval write never landed on GitHub, so the head still needs a review.
+    const landed = !UNLANDED_APPROVALS.has(r.approval?.verification);
     const evidence = r.evidence_sha256 ?? null;
     // Re-reviewing an unchanged approved head only risks clobbering its evidence.
-    if (r.status === "queued" && !(approvedHead && approvedHead === head && !verifying))
+    if (r.status === "queued" && !(approvedHead && approvedHead === head && landed && !verifying))
       out.push({ url: r.url, scope, head, updated, priority: r.priority ?? 50, evidence });
     else if (r.status === "approval_pending_verification" && verifying)
       out.push({ url: r.url, scope, head, updated, priority: r.priority ?? 50, evidence });
