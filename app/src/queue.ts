@@ -66,8 +66,8 @@ export function targets(rows: Row[]): Target[] {
     // A rejected or unknown approval write never landed on GitHub, so the head still needs a review.
     const landed = !UNLANDED_APPROVALS.has(r.approval?.verification);
     const evidence = r.evidence_sha256 ?? null;
-    // Re-reviewing an unchanged approved head only risks clobbering its evidence.
-    if (r.status === "queued" && !(approvedHead && approvedHead === head && landed && !verifying))
+    // Re-reviewing an unchanged approved head only risks clobbering its evidence; once sync invalidated that evidence, it must be reviewed again.
+    if (r.status === "queued" && !(approvedHead && approvedHead === head && landed && evidence && !verifying))
       out.push({ url: r.url, scope, head, updated, priority: r.priority ?? 50, evidence });
     else if (r.status === "approval_pending_verification" && verifying)
       out.push({ url: r.url, scope, head, updated, priority: r.priority ?? 50, evidence });
