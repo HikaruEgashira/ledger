@@ -75,6 +75,7 @@ describe("queue targets", () => {
   it("picks queued scoped rows and pending verifications, skipping approved heads", () => {
     expect(targets([row({ status: "queued" })]).length).toBe(1);
     expect(targets([row({ status: "queued", approval: { head_sha: "h", verification: "confirmed" } })]).length).toBe(0);
+    expect(targets([row({ status: "queued", approval: { head_sha: "h", verification: "write-rejected" } })]).length).toBe(1);
     expect(targets([row({ status: "approval_pending_verification", approval: { head_sha: "h", verification: "pending" } })]).length).toBe(1);
     expect(targets([row({ status: "queued", intake: {} })]).length).toBe(0);
     expect(targets([row({ status: "queued", live: { headRefOid: "h", isDraft: true } })]).length).toBe(0);
