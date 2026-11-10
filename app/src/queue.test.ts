@@ -74,8 +74,9 @@ describe("queue targets", () => {
   const row = (o: object) => ({ url: "https://github.com/example-org/r/pull/1", priority: 50, intake: { source: "review-poller", scope: "s" }, live: { headRefOid: "h" }, ...o });
   it("picks queued scoped rows and pending verifications, skipping approved heads", () => {
     expect(targets([row({ status: "queued" })]).length).toBe(1);
-    expect(targets([row({ status: "queued", approval: { head_sha: "h", verification: "confirmed" } })]).length).toBe(0);
-    expect(targets([row({ status: "queued", approval: { head_sha: "h", verification: "write-rejected" } })]).length).toBe(1);
+    expect(targets([row({ status: "queued", approval: { head_sha: "h", verification: "confirmed" }, evidence_sha256: "e" })]).length).toBe(0);
+    expect(targets([row({ status: "queued", approval: { head_sha: "h", verification: "confirmed" }, evidence_sha256: null })]).length).toBe(1);
+    expect(targets([row({ status: "queued", approval: { head_sha: "h", verification: "write-rejected" }, evidence_sha256: "e" })]).length).toBe(1);
     expect(targets([row({ status: "approval_pending_verification", approval: { head_sha: "h", verification: "pending" } })]).length).toBe(1);
     expect(targets([row({ status: "queued", intake: {} })]).length).toBe(0);
     expect(targets([row({ status: "queued", live: { headRefOid: "h", isDraft: true } })]).length).toBe(0);
