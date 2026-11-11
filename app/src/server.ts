@@ -114,7 +114,7 @@ function rows(): Response {
     priority: null,
     title: r.title,
     author: r.author,
-    action: [r.review_decision, r.checks].filter(Boolean).join(" · ") || null,
+    action: r.reason ?? null,
     last_error: null,
     updated_at: r.updated_at,
     added_at: r.created_at,
