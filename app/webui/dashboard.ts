@@ -1,4 +1,6 @@
+export type Kind = "review" | "authored";
 export interface Card {
+  kind?: Kind;
   url: string;
   repository: string;
   pr_number: number;

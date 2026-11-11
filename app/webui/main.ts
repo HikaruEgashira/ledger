@@ -18,6 +18,11 @@ const COLUMNS = [
   ["ready_to_approve", "--blue"],
   ["approval_pending_verification", "--blue"],
   ["approved", "--green"],
+  ["review_required", "--yellow"],
+  ["conflicting", "--red"],
+  ["draft", "--gray"],
+  ["blocked", "--gray"],
+  ["mergeable", "--green"],
   ["human_required", "--red"],
   ["error", "--red"],
   ["merged_waiting_release", "--accent"],
@@ -29,6 +34,7 @@ const COLUMNS = [
   ["closed", "--gray"],
 ];
 const collapsed = new Set(["completed", "closed"]);
+const kinds = new Set<string>(JSON.parse(localStorage.getItem("kinds") ?? '["review","authored"]'));
 const state: { view: string; unit: Unit; author: string; level: LevelFilter; source: string; q: string; group: string; range: Range } = {
   view: ["#dash", "#log"].includes(location.hash) ? location.hash.slice(1) : "board",
   unit: "day",
@@ -121,7 +127,7 @@ function renderBoard(rows: Card[]) {
       const list = el("div", "cards");
       if (!collapsed.has(status))
         for (const r of items) {
-          const card = el("a", "card" + (r.queue?.state === "running" ? " running" : "")) as HTMLAnchorElement;
+          const card = el("a", "card" + (r.queue?.state === "running" ? " running" : "") + (r.kind === "authored" ? " mine" : "")) as HTMLAnchorElement;
           card.href = r.url;
           card.target = "_blank";
           card.rel = "noopener noreferrer";
@@ -328,7 +334,8 @@ function render() {
   for (const id of ["view", "unit", "level", "group", "range"] as const)
     for (const b of document.getElementById(id)!.children as HTMLCollectionOf<HTMLElement>)
       b.classList.toggle("on", b.dataset.v === state[id]);
-  const rows = state.author ? last.filter((r) => r.author === state.author) : last;
+  for (const b of document.querySelectorAll<HTMLInputElement>("#kind input")) b.checked = kinds.has(b.value);
+  const rows = last.filter((r) => kinds.has(r.kind ?? "review") && (!state.author || r.author === state.author));
   if (state.view === "dash") renderDash(rows);
   else if (state.view === "log") renderLog();
   else renderBoard(rows);
@@ -351,6 +358,13 @@ document.getElementById("source")!.onchange = (e) => {
 };
 document.getElementById("q")!.oninput = (e) => {
   state.q = (e.target as HTMLInputElement).value;
+  render();
+};
+document.getElementById("kind")!.onchange = (e) => {
+  const b = e.target as HTMLInputElement;
+  if (b.checked) kinds.add(b.value);
+  else kinds.delete(b.value);
+  localStorage.setItem("kinds", JSON.stringify([...kinds]));
   render();
 };
 document.getElementById("author")!.onchange = (e) => {
