@@ -2,6 +2,8 @@ import { existsSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { readLedger, toCard } from "./ledger.ts";
+import { AUTHORED_LEDGER, readAuthored } from "./authored-prs.ts";
+import type { Card } from "../webui/dashboard.ts";
 import { readLogs, stampLogs } from "./logs.ts";
 import { CONCURRENCY, readQueue, tick } from "./queue.ts";
 
@@ -34,6 +36,19 @@ async function monitorTick(): Promise<void> {
     }).exited;
   } catch (e) {
     console.error(`error: ${(e as Error).message}`);
+  }
+}
+async function authoredTick(): Promise<void> {
+  try {
+    await Bun.spawn([process.execPath, join(ROOT, "app/src/authored-prs.ts"), "sync"], { stdio: ["ignore", "ignore", "inherit"] }).exited;
+  } catch (e) {
+    console.error(`error: authored sync: ${(e as Error).message}`);
+  }
+}
+async function authoredLoop() {
+  for (;;) {
+    await authoredTick();
+    await Bun.sleep(Math.max(300, Number(args.interval)) * 1000);
   }
 }
 // Dispatch runs on its own cadence so a slow ledger sync never delays starting workers.
@@ -73,7 +88,7 @@ function events(req: Request): Response {
   const stream = new ReadableStream({
     start(c) {
       timer = setInterval(() => {
-        const mtime = existsSync(args.ledger) ? statSync(args.ledger).mtimeMs : 0;
+        const mtime = [args.ledger, AUTHORED_LEDGER].reduce((m, p) => m + (existsSync(p) ? statSync(p).mtimeMs : 0), 0);
         c.enqueue(mtime !== seen ? "data: changed\n\n" : ": ping\n\n");
         seen = mtime;
       }, 1000);
@@ -86,12 +101,30 @@ function events(req: Request): Response {
 
 function rows(): Response {
   const queue = readQueue(ROOT);
-  return json(
-    readLedger(args.ledger).map((row) => {
-      const j = queue[row.url];
-      return { ...toCard(row), queue: j ? { state: j.state, attempts: j.attempts, started_at: j.started_at ?? null, next_at: j.next_at ?? null } : null };
-    }),
-  );
+  const review: Card[] = readLedger(args.ledger).map((row) => {
+    const j = queue[row.url];
+    return { kind: "review", ...toCard(row), queue: j ? { state: j.state, attempts: j.attempts, started_at: j.started_at ?? null, next_at: j.next_at ?? null } : null };
+  });
+  const authored: Card[] = readAuthored().map((r) => ({
+    kind: "authored",
+    url: r.url,
+    repository: r.repository,
+    pr_number: r.pr_number,
+    status: r.status,
+    priority: null,
+    title: r.title,
+    author: r.author,
+    action: [r.review_decision, r.checks].filter(Boolean).join(" · ") || null,
+    last_error: null,
+    updated_at: r.updated_at,
+    added_at: r.created_at,
+    approved_at: null,
+    changes_requested_at: null,
+    merged_at: null,
+    completed_at: null,
+    queue: null,
+  }));
+  return json([...review, ...authored]);
 }
 
 async function asset(pathname: string): Promise<Response> {
@@ -116,3 +149,4 @@ Bun.serve({
 console.error(`http://${args.host}:${args.port}/`);
 void loop();
 void queueLoop();
+void authoredLoop();
