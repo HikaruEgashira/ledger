@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Sync the authenticated user's own open PRs into authored_prs.jsonl (separate from the review ledger).
-import { renameSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { org } from "./lib/org.ts";
@@ -16,6 +16,7 @@ query($q: String!, $cursor: String) {
         author { login }
         repository { nameWithOwner }
         mergeable mergeStateStatus reviewDecision
+        autoMergeRequest { enabledAt }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       }
     }
@@ -37,6 +38,7 @@ export interface AuthoredRow {
   author: string;
   status: AuthoredStatus;
   reason: Reason;
+  auto_merge: boolean;
   head_sha: string;
   mergeable: string;
   merge_state: string;
@@ -70,6 +72,7 @@ export function toRow(n: any, now: string): AuthoredRow {
     author: n.author?.login ?? "",
     status: ball(reason),
     reason,
+    auto_merge: !!n.autoMergeRequest,
     head_sha: n.headRefOid,
     mergeable: n.mergeable,
     merge_state: n.mergeStateStatus,
@@ -125,6 +128,7 @@ query($owner: String!, $repo: String!, $n: Int!) {
       author { login }
       repository { nameWithOwner }
       mergeable mergeStateStatus reviewDecision
+      autoMergeRequest { enabledAt }
       commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
     }
   }
@@ -132,16 +136,26 @@ query($owner: String!, $repo: String!, $n: Int!) {
 const METHOD: Record<string, string> = { MERGE: "--merge", SQUASH: "--squash", REBASE: "--rebase" };
 
 export type MergeCheck = { ok: true; method: string } | { ok: false; reason: string };
-// Merge only what is still the user's own, open, CLEAN PR at the exact head recorded in the list.
+// Enable auto-merge only on the user's own open, non-draft PR at the exact head recorded in the list.
 export function mergeCheck(row: AuthoredRow, live: any, viewer: string, defaultMethod: string): MergeCheck {
   if (!live || live.state !== "OPEN") return { ok: false, reason: `not open (${live?.state ?? "missing"})` };
   if (live.author?.login !== viewer) return { ok: false, reason: "not authored by viewer" };
   if (live.headRefOid !== row.head_sha) return { ok: false, reason: "head changed since sync" };
-  const status = toRow(live, "").reason;
-  if (status !== "mergeable") return { ok: false, reason: `live status ${status} (${live.mergeStateStatus})` };
+  if (live.isDraft) return { ok: false, reason: "draft" };
+  if (live.autoMergeRequest) return { ok: false, reason: "auto-merge already enabled" };
   const method = METHOD[defaultMethod];
   if (!method) return { ok: false, reason: `unknown merge method ${defaultMethod}` };
   return { ok: true, method };
+}
+
+// Heads whose enable attempt failed (e.g. auto-merge disallowed); retried only after a new push.
+const failedPath = (ledger: string) => join(dirname(ledger), "logs", "authored-auto-merge-failed.json");
+function readFailed(ledger: string): Record<string, string> {
+  try {
+    return JSON.parse(readFileSync(failedPath(ledger), "utf8"));
+  } catch {
+    return {};
+  }
 }
 
 function gh(args: string[]): string {
@@ -156,7 +170,10 @@ function gh(args: string[]): string {
 
 function merge(path: string, urls: string[], yes: boolean): number {
   const all = readAuthored(path);
-  const targets = urls.length ? urls.map((u) => all.find((r) => r.url === u) ?? ({ url: u } as AuthoredRow)) : all.filter((r) => r.reason === "mergeable");
+  const failedHeads = readFailed(path);
+  const targets = urls.length
+    ? urls.map((u) => all.find((r) => r.url === u) ?? ({ url: u } as AuthoredRow))
+    : all.filter((r) => r.reason !== "draft" && !r.auto_merge && failedHeads[r.url] !== r.head_sha);
   let failed = 0;
   for (const row of targets) {
     if (!row.head_sha) {
@@ -180,16 +197,21 @@ function merge(path: string, urls: string[], yes: boolean): number {
       continue;
     }
     if (!yes) {
-      console.log(`would-merge\t${row.url}\t${c.method}\t${row.title}`);
+      console.log(`would-enable\t${row.url}\t${c.method}\t${row.title}`);
       continue;
     }
     try {
-      gh(["pr", "merge", row.url, c.method, "--match-head-commit", row.head_sha]);
-      console.log(`merged\t${row.url}\t${c.method}`);
+      gh(["pr", "merge", row.url, "--auto", c.method, "--match-head-commit", row.head_sha]);
+      console.log(`auto-merge\t${row.url}\t${c.method}`);
     } catch (e) {
       console.log(`fail\t${row.url}\t${(e as Error).message}`);
+      failedHeads[row.url] = row.head_sha;
       failed++;
     }
+  }
+  if (yes) {
+    mkdirSync(dirname(failedPath(path)), { recursive: true });
+    writeFileSync(failedPath(path), JSON.stringify(failedHeads, null, 1));
   }
   return failed ? 1 : 0;
 }

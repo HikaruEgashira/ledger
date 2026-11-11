@@ -22,7 +22,9 @@ test("mergeCheck", () => {
   expect(mergeCheck(row, { ...live, headRefOid: "b" }, "me", "MERGE").ok).toBe(false);
   expect(mergeCheck(row, live, "other", "MERGE").ok).toBe(false);
   expect(mergeCheck(row, { ...live, state: "MERGED" }, "me", "MERGE").ok).toBe(false);
-  expect(mergeCheck(row, { ...live, mergeStateStatus: "BLOCKED" }, "me", "MERGE").ok).toBe(false);
+  expect(mergeCheck(row, { ...live, mergeStateStatus: "BLOCKED" }, "me", "MERGE").ok).toBe(true);
+  expect(mergeCheck(row, { ...live, isDraft: true }, "me", "MERGE").ok).toBe(false);
+  expect(mergeCheck(row, { ...live, autoMergeRequest: { enabledAt: "t" } }, "me", "MERGE").ok).toBe(false);
 });
 
 test("ball", () => {
