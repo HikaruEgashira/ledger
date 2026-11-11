@@ -23,7 +23,11 @@ query($q: String!, $cursor: String) {
   }
 }`;
 
-export type AuthoredStatus = "mine_mergeable" | "mine_draft" | "mine_changes_requested" | "mine_waiting_ci" | "mine_conflicting" | "mine_review_required" | "mine_blocked";
+// Fine-grained reason; the board only shows whose turn it is.
+export type Reason = "mergeable" | "draft" | "conflicting" | "changes_requested" | "ci_failed" | "waiting_ci" | "review_required" | "blocked";
+export type AuthoredStatus = "mine_my_turn" | "mine_their_turn";
+const MY_TURN = new Set<Reason>(["mergeable", "draft", "conflicting", "changes_requested", "ci_failed"]);
+export const ball = (r: Reason): AuthoredStatus => (MY_TURN.has(r) ? "mine_my_turn" : "mine_their_turn");
 export interface AuthoredRow {
   url: string;
   repository: string;
@@ -31,6 +35,7 @@ export interface AuthoredRow {
   title: string;
   author: string;
   status: AuthoredStatus;
+  reason: Reason;
   head_sha: string;
   mergeable: string;
   merge_state: string;
@@ -42,25 +47,28 @@ export interface AuthoredRow {
 }
 
 // CLEAN/HAS_HOOKS means GitHub already evaluated branch protection as satisfied.
-export function classify(n: { isDraft: boolean; mergeable: string; mergeStateStatus: string; reviewDecision: string | null; checks: string | null }): AuthoredStatus {
-  if (n.isDraft) return "mine_draft";
-  if (n.mergeable === "CONFLICTING" || n.mergeStateStatus === "DIRTY") return "mine_conflicting";
-  if (n.reviewDecision === "CHANGES_REQUESTED") return "mine_changes_requested";
-  if (n.mergeable === "MERGEABLE" && ["CLEAN", "HAS_HOOKS"].includes(n.mergeStateStatus)) return "mine_mergeable";
-  if (n.checks === "PENDING" || n.checks === "EXPECTED" || n.checks === "FAILURE" || n.checks === "ERROR") return "mine_waiting_ci";
-  if (n.reviewDecision === "REVIEW_REQUIRED") return "mine_review_required";
-  return "mine_blocked";
+export function classify(n: { isDraft: boolean; mergeable: string; mergeStateStatus: string; reviewDecision: string | null; checks: string | null }): Reason {
+  if (n.isDraft) return "draft";
+  if (n.mergeable === "CONFLICTING" || n.mergeStateStatus === "DIRTY") return "conflicting";
+  if (n.reviewDecision === "CHANGES_REQUESTED") return "changes_requested";
+  if (n.mergeable === "MERGEABLE" && ["CLEAN", "HAS_HOOKS"].includes(n.mergeStateStatus)) return "mergeable";
+  if (n.checks === "FAILURE" || n.checks === "ERROR") return "ci_failed";
+  if (n.checks === "PENDING" || n.checks === "EXPECTED") return "waiting_ci";
+  if (n.reviewDecision === "REVIEW_REQUIRED") return "review_required";
+  return "blocked";
 }
 
 export function toRow(n: any, now: string): AuthoredRow {
   const checks = n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null;
+  const reason = classify({ ...n, checks });
   return {
     url: n.url,
     repository: n.repository.nameWithOwner,
     pr_number: n.number,
     title: n.title,
     author: n.author?.login ?? "",
-    status: classify({ ...n, checks }),
+    status: ball(reason),
+    reason,
     head_sha: n.headRefOid,
     mergeable: n.mergeable,
     merge_state: n.mergeStateStatus,
@@ -128,8 +136,8 @@ export function mergeCheck(row: AuthoredRow, live: any, viewer: string, defaultM
   if (!live || live.state !== "OPEN") return { ok: false, reason: `not open (${live?.state ?? "missing"})` };
   if (live.author?.login !== viewer) return { ok: false, reason: "not authored by viewer" };
   if (live.headRefOid !== row.head_sha) return { ok: false, reason: "head changed since sync" };
-  const status = toRow(live, "").status;
-  if (status !== "mine_mergeable") return { ok: false, reason: `live status ${status} (${live.mergeStateStatus})` };
+  const status = toRow(live, "").reason;
+  if (status !== "mergeable") return { ok: false, reason: `live status ${status} (${live.mergeStateStatus})` };
   const method = METHOD[defaultMethod];
   if (!method) return { ok: false, reason: `unknown merge method ${defaultMethod}` };
   return { ok: true, method };
@@ -147,7 +155,7 @@ function gh(args: string[]): string {
 
 function merge(path: string, urls: string[], yes: boolean): number {
   const all = readAuthored(path);
-  const targets = urls.length ? urls.map((u) => all.find((r) => r.url === u) ?? ({ url: u } as AuthoredRow)) : all.filter((r) => r.status === "mine_mergeable");
+  const targets = urls.length ? urls.map((u) => all.find((r) => r.url === u) ?? ({ url: u } as AuthoredRow)) : all.filter((r) => r.reason === "mergeable");
   let failed = 0;
   for (const row of targets) {
     if (!row.head_sha) {
@@ -197,5 +205,5 @@ if (import.meta.main) {
   }
   if (cmd === "merge") process.exit(merge(values.ledger!, positionals.slice(1), values.yes!));
   const rows = cmd === "sync" ? sync(values.ledger!) : readAuthored(values.ledger!);
-  for (const r of rows.filter((r) => values.all || r.status === "mine_mergeable")) console.log(`${r.status}\t${r.url}\t${r.title}`);
+  for (const r of rows.filter((r) => values.all || r.reason === "mergeable")) console.log(`${r.reason}\t${r.url}\t${r.title}`);
 }

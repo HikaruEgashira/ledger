@@ -27,13 +27,8 @@ const COLUMNS = [
   ["recovered_monitoring", "--accent"],
   ["completed", "--green"],
   ["closed", "--gray"],
-  ["mine_draft", "--gray"],
-  ["mine_review_required", "--yellow"],
-  ["mine_waiting_ci", "--yellow"],
-  ["mine_changes_requested", "--red"],
-  ["mine_conflicting", "--red"],
-  ["mine_blocked", "--gray"],
-  ["mine_mergeable", "--green"],
+  ["mine_my_turn", "--red"],
+  ["mine_their_turn", "--yellow"],
 ];
 const collapsed = new Set(["completed", "closed"]);
 const kinds = new Set<string>(JSON.parse(localStorage.getItem("kinds") ?? '["review","authored"]'));
