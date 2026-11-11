@@ -1,8 +1,4 @@
 import {
-  AUTHORED_STEPS,
-  funnel,
-  REVIEW_STEPS,
-  type Step,
   aggregate,
   niceMax,
   SERIES,
@@ -252,37 +248,8 @@ function legend(series: [string, string][]) {
   }
   return l;
 }
-function funnelPanel(title: string, rows: Card[], steps: Step[]) {
-  const p = el("div", "panel");
-  p.append(el("h2", null, title));
-  const fs = funnel(rows, steps);
-  const max = Math.max(1, fs[0]?.count ?? 0);
-  const pct = (v: number | null) => (v === null ? "" : `${Math.round(v * 100)}%`);
-  for (const s of fs) {
-    const row = el("div", "fstep");
-    const bar = el("div", "fbar");
-    bar.style.width = `${(s.count / max) * 100}%`;
-    const track = el("div", "ftrack");
-    track.append(bar);
-    row.append(el("span", "flabel", s.label), track, el("b", null, s.count), el("span", "fpct", pct(s.ofPrev)), el("span", "fpct", pct(s.ofFirst)));
-    p.append(row);
-  }
-  return p;
-}
-function renderDash(all: Card[]) {
-  const panels: HTMLElement[] = [];
-  if (kinds.has("authored")) {
-    const mine = all.filter((r) => r.kind === "authored");
-    panels.push(funnelPanel(`mine funnel (open now · ${mine.length})`, mine, AUTHORED_STEPS));
-  }
-  if (!kinds.has("review")) {
-    document.getElementById("dash")!.replaceChildren(...panels);
-    return;
-  }
-  const rows = all.filter((r) => (r.kind ?? "review") === "review");
+function renderDash(rows: Card[]) {
   const data = aggregate(rows, state.unit);
-  const since = Date.now() - (state.unit === "week" ? 84 : 30) * 864e5;
-  panels.unshift(funnelPanel(`review funnel (added in range · step% / total%)`, rows.filter((r) => r.added_at && Date.parse(r.added_at) >= since), REVIEW_STEPS));
   const p1 = el("div", "panel");
   const h1 = el("h2", null, "cumulative flow");
   h1.append(legend([...[...STAGES].reverse(), ["open", "--text"]]));
@@ -299,7 +266,7 @@ function renderDash(all: Card[]) {
     table.append(tr);
   }
   p3.append(table);
-  document.getElementById("dash")!.replaceChildren(...panels, p1, p3);
+  document.getElementById("dash")!.replaceChildren(p1, p3);
 }
 
 function syncAuthors(rows: Card[]) {

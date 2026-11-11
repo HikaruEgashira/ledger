@@ -56,14 +56,3 @@ describe("aggregate", () => {
       expect(d.open).toBe(d.stage.added + d.stage.approved + d.stage.merged);
   });
 });
-
-import { funnel } from "./dashboard.ts";
-describe("funnel", () => {
-  it("counts rows reaching every prior step", () => {
-    const rows = [card({ added_at: "t", approved_at: "t" }), card({ added_at: "t" }), card({ merged_at: "t" })];
-    const f = funnel(rows, [["a", (r) => !!r.added_at], ["b", (r) => !!r.approved_at], ["c", (r) => !!r.merged_at]]);
-    expect(f.map((s) => s.count)).toEqual([2, 1, 0]);
-    expect(f[1].ofPrev).toBe(0.5);
-    expect(f[0].ofPrev).toBeNull();
-  });
-});

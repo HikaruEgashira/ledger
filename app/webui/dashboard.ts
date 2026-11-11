@@ -16,9 +16,6 @@ export interface Card {
   changes_requested_at: string | null;
   merged_at: string | null;
   completed_at: string | null;
-  reason?: string | null;
-  auto_merge?: boolean;
-  review_decision?: string | null;
   queue?: { state: "waiting" | "running" | "done" | "exhausted"; attempts: number; started_at: string | null; next_at: string | null } | null;
 }
 export type Unit = "day" | "week";
@@ -100,39 +97,6 @@ export function aggregate(rows: Card[], unit: Unit, now = new Date()): Point[] {
     ) as Record<Stage, number>,
   }));
 }
-export type Step = [label: string, reached: (r: Card) => boolean];
-export interface FunnelStep {
-  label: string;
-  count: number;
-  ofPrev: number | null;
-  ofFirst: number | null;
-}
-// Each step counts rows that reached it and every earlier step.
-export function funnel(rows: Card[], steps: Step[]): FunnelStep[] {
-  let pool = rows;
-  const first = steps.length ? rows.filter(steps[0][1]).length : 0;
-  let prev: number | null = null;
-  return steps.map(([label, reached]) => {
-    pool = pool.filter(reached);
-    const count = pool.length;
-    const step = { label, count, ofPrev: prev ? count / prev : null, ofFirst: prev === null || !first ? null : count / first };
-    prev = count;
-    return step;
-  });
-}
-export const REVIEW_STEPS: Step[] = [
-  ["added", (r) => !!r.added_at],
-  ["approved", (r) => !!(r.approved_at || r.merged_at)],
-  ["merged", (r) => !!r.merged_at],
-  ["done", (r) => !!doneAt(r)],
-];
-export const AUTHORED_STEPS: Step[] = [
-  ["open", () => true],
-  ["ready for review", (r) => r.reason !== "draft"],
-  ["auto-merge", (r) => !!r.auto_merge || r.reason === "mergeable"],
-  ["approved", (r) => r.review_decision === "APPROVED" || r.reason === "mergeable"],
-  ["ready to merge", (r) => r.reason === "mergeable"],
-];
 export function niceMax(v: number): number {
   if (v <= 4) return 4;
   const p = 10 ** Math.floor(Math.log10(v));
