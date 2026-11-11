@@ -76,6 +76,20 @@
         background: var(--card-hover);
         color: var(--text);
       }
+      .kind {
+        display: flex;
+        gap: 8px;
+        font-size: 12px;
+      }
+      .kind label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+      }
+      .card.mine {
+        border-left: 3px solid var(--accent);
+      }
       select {
         background: var(--panel);
         color: var(--text);
@@ -391,6 +405,10 @@
         <option value="">source</option>
       </select>
       <input type="search" id="q" class="log-only" placeholder="filter (text / PR URL)" />
+      <div class="kind" id="kind">
+        <label><input type="checkbox" value="review" />review</label>
+        <label><input type="checkbox" value="authored" />mine</label>
+      </div>
       <select id="author">
         <option value="">author</option>
       </select>
