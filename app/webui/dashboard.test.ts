@@ -56,3 +56,12 @@ describe("aggregate", () => {
       expect(d.open).toBe(d.stage.added + d.stage.approved + d.stage.merged);
   });
 });
+
+describe("stageAt authored", () => {
+  const t = new Date("2026-10-05T00:00:00Z");
+  it("splits added by whose turn it is", () => {
+    expect(stageAt(card({ kind: "authored", added_at: "2026-10-01T00:00:00Z", status: "mine_changes_requested" }), t)).toBe("need_respond");
+    expect(stageAt(card({ kind: "authored", added_at: "2026-10-01T00:00:00Z", status: "mine_review_requested" }), t)).toBe("responded");
+    expect(stageAt(card({ added_at: "2026-10-01T00:00:00Z" }), t)).toBe("added");
+  });
+});
