@@ -23,11 +23,12 @@ query($q: String!, $cursor: String) {
   }
 }`;
 
-// Fine-grained reason; the board only shows whose turn it is.
+// Fine-grained reason; the board groups it into GitHub-style review states.
 export type Reason = "mergeable" | "draft" | "conflicting" | "changes_requested" | "ci_failed" | "waiting_ci" | "review_required" | "blocked";
-export type AuthoredStatus = "mine_my_turn" | "mine_their_turn";
-const MY_TURN = new Set<Reason>(["mergeable", "draft", "conflicting", "changes_requested", "ci_failed"]);
-export const ball = (r: Reason): AuthoredStatus => (MY_TURN.has(r) ? "mine_my_turn" : "mine_their_turn");
+export type AuthoredStatus = "mine_ready_to_merge" | "mine_changes_requested" | "mine_review_requested";
+const AUTHOR_ACTION = new Set<Reason>(["draft", "conflicting", "changes_requested", "ci_failed"]);
+export const ball = (r: Reason): AuthoredStatus =>
+  r === "mergeable" ? "mine_ready_to_merge" : AUTHOR_ACTION.has(r) ? "mine_changes_requested" : "mine_review_requested";
 export interface AuthoredRow {
   url: string;
   repository: string;
