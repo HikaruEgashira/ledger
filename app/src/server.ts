@@ -3,6 +3,7 @@ import { join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { readLedger, toCard } from "./ledger.ts";
 import { AUTHORED_LEDGER, readAuthored } from "./authored-prs.ts";
+import { localConfig } from "./lib/org.ts";
 import type { Card } from "../webui/dashboard.ts";
 import { readLogs, stampLogs } from "./logs.ts";
 import { CONCURRENCY, readQueue, tick } from "./queue.ts";
@@ -38,11 +39,19 @@ async function monitorTick(): Promise<void> {
     console.error(`error: ${(e as Error).message}`);
   }
 }
+// Auto-merge is opt-in: set authored_auto_merge_app (a write-capable GHTKN app) in config.toml.
+const AUTO_MERGE_APP: unknown = localConfig().authored_auto_merge_app;
 async function authoredTick(): Promise<void> {
+  const script = join(ROOT, "app/src/authored-prs.ts");
   try {
-    await Bun.spawn([process.execPath, join(ROOT, "app/src/authored-prs.ts"), "sync"], { stdio: ["ignore", "ignore", "inherit"] }).exited;
+    const synced = await Bun.spawn([process.execPath, script, "sync"], { stdio: ["ignore", "ignore", "inherit"] }).exited;
+    if (synced !== 0 || typeof AUTO_MERGE_APP !== "string" || !AUTO_MERGE_APP) return;
+    await Bun.spawn([process.execPath, script, "merge", "--yes"], {
+      env: { ...process.env, GHTKN_APP: AUTO_MERGE_APP },
+      stdio: ["ignore", "inherit", "inherit"],
+    }).exited;
   } catch (e) {
-    console.error(`error: authored sync: ${(e as Error).message}`);
+    console.error(`error: authored sync/merge: ${(e as Error).message}`);
   }
 }
 async function authoredLoop() {

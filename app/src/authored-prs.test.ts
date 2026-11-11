@@ -26,8 +26,8 @@ test("mergeCheck", () => {
 });
 
 test("ball", () => {
-  expect(ball("mergeable")).toBe("mine_my_turn");
-  expect(ball("ci_failed")).toBe("mine_my_turn");
-  expect(ball("review_required")).toBe("mine_their_turn");
-  expect(ball("waiting_ci")).toBe("mine_their_turn");
+  expect(ball("mergeable")).toBe("mine_ready_to_merge");
+  expect(ball("ci_failed")).toBe("mine_changes_requested");
+  expect(ball("review_required")).toBe("mine_review_requested");
+  expect(ball("waiting_ci")).toBe("mine_review_requested");
 });
