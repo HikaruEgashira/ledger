@@ -19,7 +19,7 @@ export interface Card {
   queue?: { state: "waiting" | "running" | "done" | "exhausted"; attempts: number; started_at: string | null; next_at: string | null } | null;
 }
 export type Unit = "day" | "week";
-export type Stage = "done" | "merged" | "approved" | "added";
+export type Stage = "done" | "merged" | "approved" | "added" | "responded" | "need_respond";
 export type SeriesKey = "added" | "approved" | "merged" | "done";
 export interface Bucket {
   start: Date;
@@ -43,6 +43,8 @@ export const STAGES: [Stage, string][] = [
   ["merged", "--s3"],
   ["approved", "--s2"],
   ["added", "--s1"],
+  ["responded", "--s5"],
+  ["need_respond", "--s6"],
 ];
 export const RANGE: Record<Unit, number> = { day: 30, week: 12 };
 
@@ -59,7 +61,11 @@ export function stageAt(r: Card, t: Date): Stage | null {
       ? "merged"
       : before(r.approved_at)
         ? "approved"
-        : "added";
+        : r.kind !== "authored"
+          ? "added"
+          : r.status === "mine_changes_requested"
+            ? "need_respond"
+            : "responded";
 }
 export function bucketStart(d: Date, unit: Unit): Date {
   const x = new Date(d);
