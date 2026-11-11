@@ -131,9 +131,6 @@ function rows(): Response {
     changes_requested_at: null,
     merged_at: null,
     completed_at: null,
-    reason: r.reason,
-    auto_merge: r.auto_merge,
-    review_decision: r.review_decision,
     queue: null,
   }));
   return json([...review, ...authored]);
