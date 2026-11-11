@@ -39,7 +39,7 @@ async function monitorTick(): Promise<void> {
     console.error(`error: ${(e as Error).message}`);
   }
 }
-// Auto-merge is opt-in: set authored_auto_merge_app (a write-capable GHTKN app) in config.toml.
+// Enabling GitHub auto-merge on own non-draft PRs is opt-in: set authored_auto_merge_app (a write-capable GHTKN app) in config.toml.
 const AUTO_MERGE_APP: unknown = localConfig().authored_auto_merge_app;
 async function authoredTick(): Promise<void> {
   const script = join(ROOT, "app/src/authored-prs.ts");
@@ -123,7 +123,7 @@ function rows(): Response {
     priority: null,
     title: r.title,
     author: r.author,
-    action: r.reason ?? null,
+    action: [r.reason, r.auto_merge ? "auto-merge" : null].filter(Boolean).join(" · ") || null,
     last_error: null,
     updated_at: r.updated_at,
     added_at: r.created_at,
