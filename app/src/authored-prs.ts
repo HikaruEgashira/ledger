@@ -17,6 +17,8 @@ query($q: String!, $cursor: String) {
         repository { nameWithOwner }
         mergeable mergeStateStatus reviewDecision
         autoMergeRequest { enabledAt }
+        reviewRequests(first: 30) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } ... on Bot { login } } } }
+        latestReviews(first: 30) { nodes { state authorCanPushToRepository author { __typename login } } }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       }
     }
@@ -25,9 +27,18 @@ query($q: String!, $cursor: String) {
 }`;
 
 // Fine-grained reason; the board groups it into GitHub-style review states.
-export type Reason = "mergeable" | "draft" | "conflicting" | "changes_requested" | "ci_failed" | "waiting_ci" | "review_required" | "blocked";
+export type Reason =
+  | "mergeable"
+  | "draft"
+  | "conflicting"
+  | "ci_failed"
+  | "re_request"
+  | "needs_reviewer"
+  | "waiting_ci"
+  | "review_requested"
+  | "blocked";
 export type AuthoredStatus = "mine_ready_to_merge" | "mine_changes_requested" | "mine_review_requested";
-const AUTHOR_ACTION = new Set<Reason>(["draft", "conflicting", "changes_requested", "ci_failed"]);
+const AUTHOR_ACTION = new Set<Reason>(["draft", "conflicting", "ci_failed", "re_request", "needs_reviewer"]);
 export const ball = (r: Reason): AuthoredStatus =>
   r === "mergeable" ? "mine_ready_to_merge" : AUTHOR_ACTION.has(r) ? "mine_changes_requested" : "mine_review_requested";
 export interface AuthoredRow {
@@ -38,6 +49,8 @@ export interface AuthoredRow {
   author: string;
   status: AuthoredStatus;
   reason: Reason;
+  pending_reviewers: string[];
+  responded_reviewers: string[];
   auto_merge: boolean;
   head_sha: string;
   mergeable: string;
@@ -49,21 +62,48 @@ export interface AuthoredRow {
   synced_at: string;
 }
 
+export interface Review {
+  login: string;
+  state: string;
+  canPush: boolean;
+}
+export interface Reviewers {
+  pending: string[];
+  responded: Review[];
+}
+
+// Pending (yellow) = currently requested; responded = latest human review whose author is not re-requested.
+export function reviewers(n: any): Reviewers {
+  const pending = (n.reviewRequests?.nodes ?? [])
+    .map((x: any) => x?.requestedReviewer)
+    .filter(Boolean)
+    .map((r: any) => (r.__typename === "Team" ? `team:${r.slug}` : r.login));
+  const self = n.author?.login;
+  const responded = (n.latestReviews?.nodes ?? [])
+    .filter((r: any) => r?.author && r.author.__typename !== "Bot" && r.author.login !== self && !pending.includes(r.author.login))
+    .map((r: any) => ({ login: r.author.login, state: r.state, canPush: !!r.authorCanPushToRepository }));
+  return { pending, responded };
+}
+
 // CLEAN/HAS_HOOKS means GitHub already evaluated branch protection as satisfied.
-export function classify(n: { isDraft: boolean; mergeable: string; mergeStateStatus: string; reviewDecision: string | null; checks: string | null }): Reason {
+export function classify(n: { isDraft: boolean; mergeable: string; mergeStateStatus: string; checks: string | null }, rv: Reviewers): Reason {
   if (n.isDraft) return "draft";
   if (n.mergeable === "CONFLICTING" || n.mergeStateStatus === "DIRTY") return "conflicting";
-  if (n.reviewDecision === "CHANGES_REQUESTED") return "changes_requested";
   if (n.mergeable === "MERGEABLE" && ["CLEAN", "HAS_HOOKS"].includes(n.mergeStateStatus)) return "mergeable";
   if (n.checks === "FAILURE" || n.checks === "ERROR") return "ci_failed";
+  // A counted approval needs no follow-up; any other non-yellow review needs a response and re-request.
+  const counted = rv.responded.filter((r) => r.state === "APPROVED" && r.canPush);
+  if (rv.responded.some((r) => r.state !== "APPROVED")) return "re_request";
+  if (!rv.pending.length && !counted.length) return "needs_reviewer";
   if (n.checks === "PENDING" || n.checks === "EXPECTED") return "waiting_ci";
-  if (n.reviewDecision === "REVIEW_REQUIRED") return "review_required";
+  if (rv.pending.length) return "review_requested";
   return "blocked";
 }
 
 export function toRow(n: any, now: string): AuthoredRow {
   const checks = n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null;
-  const reason = classify({ ...n, checks });
+  const rv = reviewers(n);
+  const reason = classify({ ...n, checks }, rv);
   return {
     url: n.url,
     repository: n.repository.nameWithOwner,
@@ -72,6 +112,8 @@ export function toRow(n: any, now: string): AuthoredRow {
     author: n.author?.login ?? "",
     status: ball(reason),
     reason,
+    pending_reviewers: rv.pending,
+    responded_reviewers: rv.responded.map((r) => `${r.login}:${r.state}${r.canPush ? "" : ":no-push"}`),
     auto_merge: !!n.autoMergeRequest,
     head_sha: n.headRefOid,
     mergeable: n.mergeable,
