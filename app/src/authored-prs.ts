@@ -7,23 +7,25 @@ import { org } from "./lib/org.ts";
 import { exec } from "./lib/util.ts";
 
 export const AUTHORED_LEDGER = join(resolve(import.meta.dir, "../.."), "authored_prs.jsonl");
+const PR_FIELDS = `
+  url number title isDraft createdAt updatedAt headRefOid state
+  author { login }
+  repository { nameWithOwner }
+  mergeable mergeStateStatus reviewDecision
+  autoMergeRequest { enabledAt }
+  reviewRequests(first: 30) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } ... on Bot { login } } } }
+  latestReviews(first: 30) { nodes { state authorCanPushToRepository author { __typename login } } }
+  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`;
 const QUERY = `
 query($q: String!, $cursor: String) {
   search(query: $q, type: ISSUE, first: 10, after: $cursor) {
-    nodes {
-      ... on PullRequest {
-        url number title isDraft createdAt updatedAt headRefOid
-        author { login }
-        repository { nameWithOwner }
-        mergeable mergeStateStatus reviewDecision
-        autoMergeRequest { enabledAt }
-        reviewRequests(first: 30) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } ... on Bot { login } } } }
-        latestReviews(first: 30) { nodes { state authorCanPushToRepository author { __typename login } } }
-        commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
-      }
-    }
+    nodes { ... on PullRequest { ${PR_FIELDS} } }
     pageInfo { hasNextPage endCursor }
   }
+}`;
+const ONE = `
+query($owner: String!, $repo: String!, $n: Int!) {
+  repository(owner: $owner, name: $repo) { pullRequest(number: $n) { ${PR_FIELDS} } }
 }`;
 
 // Fine-grained reason; the board groups it into GitHub-style review states.
@@ -151,13 +153,78 @@ export function readAuthored(path = AUTHORED_LEDGER): AuthoredRow[] {
   return readFileSync(path, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
 }
 
-function sync(path: string): AuthoredRow[] {
-  const now = new Date().toISOString();
-  const rows = fetchAll().map((n) => toRow(n, now)).sort((a, b) => a.url.localeCompare(b.url));
+function writeAuthored(path: string, rows: AuthoredRow[]): void {
   const tmp = join(dirname(path), `.tmp-authored-${process.pid}`);
   writeFileSync(tmp, rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""), { mode: 0o600 });
   renameSync(tmp, path);
+}
+
+function sync(path: string): AuthoredRow[] {
+  const now = new Date().toISOString();
+  const rows = fetchAll().map((n) => toRow(n, now)).sort((a, b) => a.url.localeCompare(b.url));
+  writeAuthored(path, rows);
   return rows;
+}
+
+// Heads a worker handed to a human (intent change); the PR waits for the human, not the queue.
+const dispatchPath = (ledger: string) => join(dirname(ledger), "logs", "authored-dispatched.json");
+export function readDispatched(path = AUTHORED_LEDGER): Record<string, { head: string; reason: string; at: string }> {
+  try {
+    return JSON.parse(readFileSync(dispatchPath(path), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+export const isDispatched = (row: AuthoredRow, d: ReturnType<typeof readDispatched>) => d[row.url]?.head === row.head_sha;
+
+/** The response is complete once the ball is with the reviewers (or a human took it over). */
+export const responded = (row: AuthoredRow, d: ReturnType<typeof readDispatched>) =>
+  row.status !== "mine_changes_requested" || isDispatched(row, d);
+
+// Activity key: a new push or a new reviewer response is new work; the worker's own comments are not.
+export const activityKey = (row: AuthoredRow) => [row.reason, ...row.pending_reviewers, ...row.responded_reviewers].join(",");
+
+export interface AuthoredTarget {
+  url: string;
+  scope: "authored";
+  head: string;
+  updated: string;
+  priority: number;
+}
+/** Own PRs whose ball is with the author; drafts stay the author's choice. */
+export function authoredTargets(rows: AuthoredRow[], d: ReturnType<typeof readDispatched>): AuthoredTarget[] {
+  return rows
+    .filter((r) => r.status === "mine_changes_requested" && r.reason !== "draft" && !isDispatched(r, d))
+    .map((r) => ({ url: r.url, scope: "authored", head: r.head_sha, updated: activityKey(r), priority: 60 }));
+}
+
+/** Re-fetch one PR, store it, and exit 0 only when the ball left the author. */
+function check(path: string, url: string): number {
+  const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/.exec(url);
+  if (!m) throw new Error(`invalid PR URL: ${url}`);
+  const live = JSON.parse(gh(["api", "graphql", "-f", `query=${ONE}`, "-F", `owner=${m[1]}`, "-F", `repo=${m[2]}`, "-F", `n=${m[3]}`])).data.repository.pullRequest;
+  const rows = readAuthored(path).filter((r) => r.url !== url);
+  if (live.state !== "OPEN") {
+    writeAuthored(path, rows);
+    console.log(`done\t${url}\t${live.state}`);
+    return 0;
+  }
+  const row = toRow(live, new Date().toISOString());
+  writeAuthored(path, [...rows, row].sort((a, b) => a.url.localeCompare(b.url)));
+  const ok = responded(row, readDispatched(path));
+  console.log(`${ok ? "done" : "still-mine"}\t${url}\t${row.status}\t${row.reason}`);
+  return ok ? 0 : 1;
+}
+
+function dispatch(path: string, url: string, reason: string): void {
+  const row = readAuthored(path).find((r) => r.url === url);
+  if (!row) throw new Error(`not in authored list: ${url}`);
+  const d = readDispatched(path);
+  d[url] = { head: row.head_sha, reason, at: new Date().toISOString() };
+  mkdirSync(dirname(dispatchPath(path)), { recursive: true });
+  writeFileSync(dispatchPath(path), JSON.stringify(d, null, 1));
+  console.log(`dispatched\t${url}`);
 }
 
 const VIEW = `
@@ -165,14 +232,7 @@ query($owner: String!, $repo: String!, $n: Int!) {
   viewer { login }
   repository(owner: $owner, name: $repo) {
     viewerDefaultMergeMethod
-    pullRequest(number: $n) {
-      url number title isDraft createdAt updatedAt headRefOid state
-      author { login }
-      repository { nameWithOwner }
-      mergeable mergeStateStatus reviewDecision
-      autoMergeRequest { enabledAt }
-      commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
-    }
+    pullRequest(number: $n) { ${PR_FIELDS} }
   }
 }`;
 const METHOD: Record<string, string> = { MERGE: "--merge", SQUASH: "--squash", REBASE: "--rebase" };
@@ -261,13 +321,20 @@ function merge(path: string, urls: string[], yes: boolean): number {
 if (import.meta.main) {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
-    options: { ledger: { type: "string", default: AUTHORED_LEDGER }, all: { type: "boolean", default: false }, yes: { type: "boolean", default: false } },
+    options: {
+      ledger: { type: "string", default: AUTHORED_LEDGER },
+      all: { type: "boolean", default: false },
+      yes: { type: "boolean", default: false },
+      reason: { type: "string" },
+    },
   });
   const cmd = positionals[0] ?? "list";
-  if (!["sync", "list", "merge"].includes(cmd)) {
-    console.error("usage: authored-prs.ts [--ledger PATH] {sync|list [--all]|merge [--yes] [URL...]}");
+  if (!["sync", "list", "merge", "check", "dispatch"].includes(cmd) || (["check", "dispatch"].includes(cmd) && !positionals[1]) || (cmd === "dispatch" && !values.reason)) {
+    console.error("usage: authored-prs.ts [--ledger PATH] {sync|list [--all]|merge [--yes] [URL...]|check URL|dispatch URL --reason TEXT}");
     process.exit(2);
   }
+  if (cmd === "check") process.exit(check(values.ledger!, positionals[1]));
+  if (cmd === "dispatch") process.exit((dispatch(values.ledger!, positionals[1], values.reason!), 0));
   if (cmd === "merge") process.exit(merge(values.ledger!, positionals.slice(1), values.yes!));
   const rows = cmd === "sync" ? sync(values.ledger!) : readAuthored(values.ledger!);
   for (const r of rows.filter((r) => values.all || r.reason === "mergeable")) console.log(`${r.reason}\t${r.url}\t${r.title}`);
