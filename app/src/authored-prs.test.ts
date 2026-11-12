@@ -1,18 +1,44 @@
 import { expect, test } from "bun:test";
-import { ball, classify, mergeCheck, toRow } from "./authored-prs.ts";
+import { ball, classify, mergeCheck, reviewers, toRow, type Reviewers } from "./authored-prs.ts";
 
-const base = { isDraft: false, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", reviewDecision: "APPROVED", checks: "SUCCESS" };
+const base = { isDraft: false, mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", checks: "SUCCESS" };
+const rv = (pending: string[], responded: [string, string, boolean?][] = []): Reviewers => ({
+  pending,
+  responded: responded.map(([login, state, canPush = true]) => ({ login, state, canPush })),
+});
 
-test("classify", () => {
-  expect(classify(base)).toBe("mergeable");
-  expect(classify({ ...base, mergeStateStatus: "HAS_HOOKS" })).toBe("mergeable");
-  expect(classify({ ...base, isDraft: true })).toBe("draft");
-  expect(classify({ ...base, mergeable: "CONFLICTING", mergeStateStatus: "DIRTY" })).toBe("conflicting");
-  expect(classify({ ...base, reviewDecision: "CHANGES_REQUESTED", mergeStateStatus: "BLOCKED" })).toBe("changes_requested");
-  expect(classify({ ...base, mergeStateStatus: "BLOCKED", checks: "PENDING" })).toBe("waiting_ci");
-  expect(classify({ ...base, mergeStateStatus: "BLOCKED", checks: "FAILURE" })).toBe("ci_failed");
-  expect(classify({ ...base, mergeStateStatus: "BLOCKED", reviewDecision: "REVIEW_REQUIRED" })).toBe("review_required");
-  expect(classify({ ...base, mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN" })).toBe("blocked");
+test("classify by PR state", () => {
+  expect(classify({ ...base, mergeStateStatus: "CLEAN" }, rv([]))).toBe("mergeable");
+  expect(classify({ ...base, isDraft: true }, rv(["a"]))).toBe("draft");
+  expect(classify({ ...base, mergeable: "CONFLICTING", mergeStateStatus: "DIRTY" }, rv(["a"]))).toBe("conflicting");
+  expect(classify({ ...base, checks: "FAILURE" }, rv(["a"]))).toBe("ci_failed");
+});
+
+test("classify by reviewer state", () => {
+  expect(classify(base, rv(["a", "team:x"]))).toBe("review_requested");
+  expect(classify({ ...base, checks: "PENDING" }, rv(["a"]))).toBe("waiting_ci");
+  expect(classify(base, rv(["a"], [["b", "COMMENTED"]]))).toBe("re_request");
+  expect(classify(base, rv([], [["b", "DISMISSED"]]))).toBe("re_request");
+  expect(classify(base, rv([], [["b", "CHANGES_REQUESTED"]]))).toBe("re_request");
+  expect(classify(base, rv([]))).toBe("needs_reviewer");
+  expect(classify(base, rv([], [["b", "APPROVED", false]]))).toBe("needs_reviewer");
+  expect(classify(base, rv(["a"], [["b", "APPROVED"]]))).toBe("review_requested");
+  expect(classify(base, rv([], [["b", "APPROVED"]]))).toBe("blocked");
+});
+
+test("reviewers drops bots, self and re-requested reviewers", () => {
+  const r = reviewers({
+    author: { login: "me" },
+    reviewRequests: { nodes: [{ requestedReviewer: { __typename: "User", login: "a" } }, { requestedReviewer: { __typename: "Team", slug: "t" } }] },
+    latestReviews: {
+      nodes: [
+        { state: "COMMENTED", authorCanPushToRepository: true, author: { __typename: "User", login: "a" } },
+        { state: "COMMENTED", authorCanPushToRepository: false, author: { __typename: "Bot", login: "coderabbitai" } },
+        { state: "APPROVED", authorCanPushToRepository: false, author: { __typename: "User", login: "b" } },
+      ],
+    },
+  });
+  expect(r).toEqual({ pending: ["a", "team:t"], responded: [{ login: "b", state: "APPROVED", canPush: false }] });
 });
 
 test("mergeCheck", () => {
@@ -22,14 +48,14 @@ test("mergeCheck", () => {
   expect(mergeCheck(row, { ...live, headRefOid: "b" }, "me", "MERGE").ok).toBe(false);
   expect(mergeCheck(row, live, "other", "MERGE").ok).toBe(false);
   expect(mergeCheck(row, { ...live, state: "MERGED" }, "me", "MERGE").ok).toBe(false);
-  expect(mergeCheck(row, { ...live, mergeStateStatus: "BLOCKED" }, "me", "MERGE").ok).toBe(true);
   expect(mergeCheck(row, { ...live, isDraft: true }, "me", "MERGE").ok).toBe(false);
   expect(mergeCheck(row, { ...live, autoMergeRequest: { enabledAt: "t" } }, "me", "MERGE").ok).toBe(false);
 });
 
 test("ball", () => {
   expect(ball("mergeable")).toBe("mine_ready_to_merge");
-  expect(ball("ci_failed")).toBe("mine_changes_requested");
-  expect(ball("review_required")).toBe("mine_review_requested");
+  expect(ball("re_request")).toBe("mine_changes_requested");
+  expect(ball("needs_reviewer")).toBe("mine_changes_requested");
+  expect(ball("review_requested")).toBe("mine_review_requested");
   expect(ball("waiting_ci")).toBe("mine_review_requested");
 });
