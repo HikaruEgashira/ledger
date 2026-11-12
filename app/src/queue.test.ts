@@ -135,3 +135,11 @@ describe("authored jobs", () => {
     expect(r.queue[t.url].next_at).toBe(new Date(1 + BACKOFF_MS).toISOString());
   });
 });
+
+describe("authored concurrency", () => {
+  it("caps authored jobs separately from reviews", () => {
+    const a = (n: number): Target => ({ url: `https://github.com/o/r/pull/${n}`, kind: "authored", head: "h", updated: "u", priority: 60, scope: "authored" });
+    const { start } = plan({}, [a(1), a(2), a(3)], 0, () => false, 50, 2);
+    expect(start.length).toBe(2);
+  });
+});
