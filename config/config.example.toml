@@ -5,6 +5,9 @@ launchd_label_prefix = "com.example"
 notify_slack_user = "U00000000"
 # Optional: enable GitHub auto-merge on your own open non-draft PRs (write-capable GHTKN app).
 # authored_auto_merge_app = "example-org/write"
+# Optional: queue your own PRs whose ball is with you (CI failed, conflicts, reviewer responded, no reviewer)
+# and answer them with skills/respond-authored-prs/SKILL.md using worker_command.
+# authored_respond = true
 exclude_authors = ["your-github-login"]
 worker_command = [
   "/usr/bin/env",
