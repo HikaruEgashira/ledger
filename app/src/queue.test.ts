@@ -123,3 +123,15 @@ describe("queue outage recovery", () => {
     expect(plan({ ...exhausted(MAX_REVIVALS), ...finishing(0) }, [T(1)], 1, dead).queue[T(1).url].state).toBe("exhausted");
   });
 });
+
+describe("authored jobs", () => {
+  it("keeps the kind and retries a failed re-check with backoff", () => {
+    const t: Target = { url: "https://github.com/o/r/pull/9", kind: "authored", head: "h", updated: "ci_failed", priority: 60, scope: "authored" };
+    const { queue, start } = plan({}, [t], 0, () => false);
+    expect(start[0].kind).toBe("authored");
+    queue[t.url].exit_code = 1;
+    const r = plan(queue, [t], 1, () => false);
+    expect(r.queue[t.url].state).toBe("waiting");
+    expect(r.queue[t.url].next_at).toBe(new Date(1 + BACKOFF_MS).toISOString());
+  });
+});

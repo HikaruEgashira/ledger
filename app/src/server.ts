@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { readLedger, toCard } from "./ledger.ts";
-import { AUTHORED_LEDGER, readAuthored } from "./authored-prs.ts";
+import { AUTHORED_LEDGER, authoredTargets, readAuthored, readDispatched } from "./authored-prs.ts";
 import { localConfig } from "./lib/org.ts";
 import type { Card } from "../webui/dashboard.ts";
 import { readLogs, stampLogs } from "./logs.ts";
@@ -41,6 +41,8 @@ async function monitorTick(): Promise<void> {
 }
 // Enabling GitHub auto-merge on own non-draft PRs is opt-in: set authored_auto_merge_app (a write-capable GHTKN app) in config.toml.
 const AUTO_MERGE_APP: unknown = localConfig().authored_auto_merge_app;
+// Responding to own PRs whose ball is with the author is opt-in: authored_respond = true.
+const RESPOND = localConfig().authored_respond === true;
 async function authoredTick(): Promise<void> {
   const script = join(ROOT, "app/src/authored-prs.ts");
   try {
@@ -67,7 +69,7 @@ async function queueLoop() {
   let failures = 0;
   for (;;) {
     try {
-      tick(ROOT, readLedger(args.ledger));
+      tick(ROOT, readLedger(args.ledger), Date.now(), RESPOND ? authoredTargets(readAuthored(), readDispatched()) : []);
       failures = 0;
     } catch (e) {
       console.error(`error: queue tick: ${(e as Error).message}`);
@@ -110,10 +112,11 @@ function events(req: Request): Response {
 
 function rows(): Response {
   const queue = readQueue(ROOT);
-  const review: Card[] = readLedger(args.ledger).map((row) => {
-    const j = queue[row.url];
-    return { kind: "review", ...toCard(row), queue: j ? { state: j.state, attempts: j.attempts, started_at: j.started_at ?? null, next_at: j.next_at ?? null } : null };
-  });
+  const tag = (url: string) => {
+    const j = queue[url];
+    return j ? { state: j.state, attempts: j.attempts, started_at: j.started_at ?? null, next_at: j.next_at ?? null } : null;
+  };
+  const review: Card[] = readLedger(args.ledger).map((row) => ({ kind: "review", ...toCard(row), queue: tag(row.url) }));
   const authored: Card[] = readAuthored().map((r) => ({
     kind: "authored",
     url: r.url,
@@ -131,7 +134,7 @@ function rows(): Response {
     changes_requested_at: null,
     merged_at: null,
     completed_at: null,
-    queue: null,
+    queue: tag(r.url),
   }));
   return json([...review, ...authored]);
 }

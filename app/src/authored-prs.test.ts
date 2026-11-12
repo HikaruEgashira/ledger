@@ -59,3 +59,21 @@ test("ball", () => {
   expect(ball("review_requested")).toBe("mine_review_requested");
   expect(ball("waiting_ci")).toBe("mine_review_requested");
 });
+
+import { authoredTargets, responded, type AuthoredRow } from "./authored-prs.ts";
+const arow = (over: Partial<AuthoredRow>): AuthoredRow =>
+  ({ url: "u", head_sha: "h", status: "mine_changes_requested", reason: "ci_failed", pending_reviewers: [], responded_reviewers: [], ...over }) as AuthoredRow;
+
+test("authoredTargets queues my-turn PRs except drafts and dispatched heads", () => {
+  const rows = [arow({ url: "a" }), arow({ url: "b", reason: "draft" }), arow({ url: "c", status: "mine_review_requested" }), arow({ url: "d" })];
+  const t = authoredTargets(rows, { d: { head: "h", reason: "x", at: "t" } });
+  expect(t.map((x) => x.url)).toEqual(["a"]);
+  expect(authoredTargets([arow({ url: "d", head_sha: "new" })], { d: { head: "h", reason: "x", at: "t" } }).length).toBe(1);
+});
+
+test("responded means the ball left the author", () => {
+  expect(responded(arow({}), {})).toBe(false);
+  expect(responded(arow({ status: "mine_review_requested" }), {})).toBe(true);
+  expect(responded(arow({ status: "mine_ready_to_merge" }), {})).toBe(true);
+  expect(responded(arow({}), { u: { head: "h", reason: "x", at: "t" } })).toBe(true);
+});
