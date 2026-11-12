@@ -6,6 +6,8 @@ import { exec } from "./lib/util.ts";
 import { escapeRe, localConfig, org } from "./lib/org.ts";
 
 export const CONCURRENCY = 50;
+/** Own-PR responders share the host's GitHub access with reviewers; keep them from crowding it out. */
+export const AUTHORED_CONCURRENCY = 5;
 export const MAX_ATTEMPTS = 3;
 export const BACKOFF_MS = 10 * 60_000;
 /** Times an exhausted job gets a fresh budget after another worker succeeds (outage recovered). */
@@ -82,6 +84,7 @@ export function plan(
   now: number,
   alive: (pid: number) => boolean,
   limit = CONCURRENCY,
+  authoredLimit = AUTHORED_CONCURRENCY,
 ): { queue: Queue; start: Job[] } {
   const iso = new Date(now).toISOString();
   const want = new Map(wanted.map((t) => [t.url, t]));
@@ -123,7 +126,10 @@ export function plan(
   const ready = Object.values(next)
     .filter((j) => j.state === "waiting" && (!j.next_at || Date.parse(j.next_at) <= now))
     .sort((a, b) => a.priority - b.priority || a.enqueued_at.localeCompare(b.enqueued_at));
-  const start = ready.slice(0, Math.max(0, limit - running));
+  let authored = Object.values(next).filter((j) => j.state === "running" && j.kind === "authored").length;
+  const start = ready
+    .filter((j) => j.kind !== "authored" || authored++ < authoredLimit)
+    .slice(0, Math.max(0, limit - running));
   for (const j of start) {
     j.state = "running";
     j.attempts += 1;
