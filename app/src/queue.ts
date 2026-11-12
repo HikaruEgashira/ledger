@@ -17,6 +17,7 @@ const DIRECT = "direct";
 export type JobState = "waiting" | "running" | "done" | "exhausted";
 export interface Job {
   url: string;
+  kind?: "authored";
   scope: string;
   head: string;
   updated: string;
@@ -36,6 +37,8 @@ export type Queue = Record<string, Job>;
 type Row = Record<string, any>;
 export interface Target {
   url: string;
+  /** "authored": the user's own PR, answered by the respond prompt instead of a review. */
+  kind?: "authored";
   scope: string;
   head: string;
   updated: string;
@@ -164,9 +167,12 @@ function writeQueue(root: string, q: Queue) {
   renameSync(tmp, queuePath(root));
 }
 
+const RESPOND_SKILL = "skills/respond-authored-prs/SKILL.md";
 function argv(root: string, job: Job): string[] {
   const config = localConfig(join(root, "config/config.toml"));
   const command: string[] = config.worker_command;
+  if (job.kind === "authored")
+    return [...command.slice(0, -1), `Read ${RESPOND_SKILL} and follow it for exactly this pull request you authored: ${job.url}`];
   const scope = (config.scopes ?? []).find((s: any) => s.name === job.scope);
   // Direct requests get the full review; only scoped team PRs narrow to their profile.
   const focus = scope ? ` Read ${scope.profile} and check only those viewpoints.` : "";
@@ -207,9 +213,13 @@ const readExit = (root: string) => (url: string) => {
   }
 };
 
-export function tick(root: string, rows: Row[], now = Date.now()): Job[] {
+// The respond worker's own exit is not the verdict: the job is done only when a live re-check shows the ball left the author.
+const SCRIPT = '"$@"; echo $? > "$QUEUE_EXIT_FILE"';
+const AUTHORED_SCRIPT = '"$@"; "$QUEUE_BUN" "$QUEUE_AUTHORED" check "$QUEUE_URL"; echo $? > "$QUEUE_EXIT_FILE"';
+
+export function tick(root: string, rows: Row[], now = Date.now(), authored: Target[] = []): Job[] {
   const q = settleExits(readQueue(root), readExit(root));
-  const { queue, start } = plan(q, targets(rows), now, (pid) => workerAlive(pid, q));
+  const { queue, start } = plan(q, [...targets(rows), ...authored.map((t) => ({ ...t, kind: "authored" as const }))], now, (pid) => workerAlive(pid, q));
   const log = openSync(join(root, "logs/review-poller/worker.log"), "a");
   let failure: Error | null = null;
   try {
@@ -218,11 +228,17 @@ export function tick(root: string, rows: Row[], now = Date.now()): Job[] {
         const exit = exitPath(root, job.url);
         mkdirSync(join(exit, ".."), { recursive: true });
         rmSync(exit, { force: true });
-        const child = spawn("/bin/sh", ["-c", '"$@"; echo $? > "$QUEUE_EXIT_FILE"', "sh", ...argv(root, job)], {
+        const child = spawn("/bin/sh", ["-c", job.kind === "authored" ? AUTHORED_SCRIPT : SCRIPT, "sh", ...argv(root, job)], {
           cwd: root,
           stdio: ["ignore", log, log],
           detached: true,
-          env: { ...process.env, QUEUE_EXIT_FILE: exit },
+          env: {
+            ...process.env,
+            QUEUE_EXIT_FILE: exit,
+            QUEUE_URL: job.url,
+            QUEUE_BUN: process.execPath,
+            QUEUE_AUTHORED: join(root, "app/src/authored-prs.ts"),
+          },
         });
         child.on("error", (e) => console.error(`error: queue spawn ${job.url}: ${e.message}`));
         child.on("exit", (code) => recordExit(root, job.url, child.pid, code));
