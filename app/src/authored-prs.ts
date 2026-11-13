@@ -168,7 +168,13 @@ function sync(path: string): AuthoredRow[] {
 
 // Heads a worker handed to a human (intent change); the PR waits for the human, not the queue.
 const dispatchPath = (ledger: string) => join(dirname(ledger), "logs", "authored-dispatched.json");
-export function readDispatched(path = AUTHORED_LEDGER): Record<string, { head: string; reason: string; at: string }> {
+export interface Dispatch {
+  head: string;
+  reason: string;
+  at: string;
+  options?: string[];
+}
+export function readDispatched(path = AUTHORED_LEDGER): Record<string, Dispatch> {
   try {
     return JSON.parse(readFileSync(dispatchPath(path), "utf8"));
   } catch {
@@ -193,10 +199,92 @@ export interface AuthoredTarget {
   priority: number;
 }
 /** Own PRs whose ball is with the author; drafts stay the author's choice. */
-export function authoredTargets(rows: AuthoredRow[], d: ReturnType<typeof readDispatched>): AuthoredTarget[] {
+export function authoredTargets(rows: AuthoredRow[], d: ReturnType<typeof readDispatched>, dec: Decisions = {}): AuthoredTarget[] {
   return rows
     .filter((r) => r.status === "mine_changes_requested" && r.reason !== "draft" && !isDispatched(r, d))
-    .map((r) => ({ url: r.url, scope: "authored", head: r.head_sha, updated: activityKey(r), priority: 60 }));
+    .map((r) => ({ url: r.url, scope: "authored", head: r.head_sha, updated: [activityKey(r), dec[r.url]?.at ?? ""].join("|"), priority: 60 }));
+}
+
+// Human answers to dispatched questions; an answer at the current head re-queues the worker with it.
+export interface Decision {
+  head: string;
+  question: string;
+  choice: string;
+  at: string;
+}
+export type Decisions = Record<string, Decision>;
+export const HOLD = "保留";
+export const CLOSE = "PRをclose";
+export const RETRY = "自動対応で再試行";
+const decisionPath = (ledger: string) => join(dirname(ledger), "logs", "authored-decisions.json");
+export function readDecisions(path = AUTHORED_LEDGER): Decisions {
+  try {
+    return JSON.parse(readFileSync(decisionPath(path), "utf8"));
+  } catch {
+    return {};
+  }
+}
+function writeJson(file: string, body: unknown): void {
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.tmp-${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(body, null, 1));
+  renameSync(tmp, file);
+}
+
+export interface PendingDecision {
+  url: string;
+  repository: string;
+  pr_number: number;
+  title: string;
+  reason: Reason;
+  head: string;
+  question: string;
+  options: string[];
+  asked_at: string;
+  held: boolean;
+}
+/** Dispatched heads still waiting for the human; held ones stay listed but sort last. */
+export function pendingDecisions(rows: AuthoredRow[], d: Record<string, Dispatch>, dec: Decisions): PendingDecision[] {
+  return rows
+    .filter((r) => r.status === "mine_changes_requested" && r.reason !== "draft" && isDispatched(r, d))
+    .map((r) => {
+      const q = d[r.url];
+      const a = dec[r.url];
+      const answered = a?.head === r.head_sha && a.at >= q.at;
+      return { r, q, answered, held: answered && a.choice === HOLD };
+    })
+    .filter((x) => !x.answered || x.held)
+    .map(({ r, q, held }) => ({
+      url: r.url,
+      repository: r.repository,
+      pr_number: r.pr_number,
+      title: r.title,
+      reason: r.reason,
+      head: r.head_sha,
+      question: q.reason,
+      options: [...new Set([...(q.options ?? []), RETRY, CLOSE, HOLD])],
+      asked_at: q.at,
+      held,
+    }))
+    .sort((a, b) => Number(a.held) - Number(b.held) || a.asked_at.localeCompare(b.asked_at));
+}
+
+/** Record an answer; any choice but HOLD releases the head so the queue picks it up again. */
+export function decide(path: string, url: string, head: string, choice: string): Decision {
+  const d = readDispatched(path);
+  const q = d[url];
+  if (!q || q.head !== head) throw new Error("question is stale (new push or not dispatched)");
+  const allowed = [...(q.options ?? []), RETRY, CLOSE, HOLD];
+  if (!allowed.includes(choice)) throw new Error(`unknown choice: ${choice}`);
+  const dec = readDecisions(path);
+  const a = { head, question: q.reason, choice, at: new Date().toISOString() };
+  dec[url] = a;
+  writeJson(decisionPath(path), dec);
+  if (choice !== HOLD) {
+    delete d[url];
+    writeJson(dispatchPath(path), d);
+  }
+  return a;
 }
 
 /** Re-fetch one PR, store it, and exit 0 only when the ball left the author. */
@@ -217,13 +305,12 @@ function check(path: string, url: string): number {
   return ok ? 0 : 1;
 }
 
-function dispatch(path: string, url: string, reason: string): void {
+function dispatch(path: string, url: string, reason: string, options: string[]): void {
   const row = readAuthored(path).find((r) => r.url === url);
   if (!row) throw new Error(`not in authored list: ${url}`);
   const d = readDispatched(path);
-  d[url] = { head: row.head_sha, reason, at: new Date().toISOString() };
-  mkdirSync(dirname(dispatchPath(path)), { recursive: true });
-  writeFileSync(dispatchPath(path), JSON.stringify(d, null, 1));
+  d[url] = { head: row.head_sha, reason, at: new Date().toISOString(), ...(options.length ? { options } : {}) };
+  writeJson(dispatchPath(path), d);
   console.log(`dispatched\t${url}`);
 }
 
@@ -335,15 +422,21 @@ if (import.meta.main) {
       all: { type: "boolean", default: false },
       yes: { type: "boolean", default: false },
       reason: { type: "string" },
+      option: { type: "string", multiple: true },
     },
   });
   const cmd = positionals[0] ?? "list";
-  if (!["sync", "list", "merge", "check", "dispatch"].includes(cmd) || (["check", "dispatch"].includes(cmd) && !positionals[1]) || (cmd === "dispatch" && !values.reason)) {
-    console.error("usage: authored-prs.ts [--ledger PATH] {sync|list [--all]|merge [--yes] [URL...]|check URL|dispatch URL --reason TEXT}");
+  if (!["sync", "list", "merge", "check", "dispatch", "decision"].includes(cmd) || (["check", "dispatch", "decision"].includes(cmd) && !positionals[1]) || (cmd === "dispatch" && !values.reason)) {
+    console.error("usage: authored-prs.ts [--ledger PATH] {sync|list [--all]|merge [--yes] [URL...]|check URL|dispatch URL --reason TEXT [--option TEXT]...|decision URL}");
     process.exit(2);
   }
   if (cmd === "check") process.exit(check(values.ledger!, positionals[1]));
-  if (cmd === "dispatch") process.exit((dispatch(values.ledger!, positionals[1], values.reason!), 0));
+  if (cmd === "dispatch") process.exit((dispatch(values.ledger!, positionals[1], values.reason!, values.option ?? []), 0));
+  if (cmd === "decision") {
+    const a = readDecisions(values.ledger!)[positionals[1]];
+    if (a) console.log(`question\t${a.question}\nchoice\t${a.choice}\nhead\t${a.head}\nat\t${a.at}`);
+    process.exit(a ? 0 : 1);
+  }
   if (cmd === "merge") process.exit(merge(values.ledger!, positionals.slice(1), values.yes!));
   const rows = cmd === "sync" ? sync(values.ledger!) : readAuthored(values.ledger!);
   for (const r of rows.filter((r) => values.all || r.reason === "mergeable")) console.log(`${r.reason}\t${r.url}\t${r.title}`);

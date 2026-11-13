@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { readLedger, toCard } from "./ledger.ts";
-import { AUTHORED_LEDGER, authoredTargets, readAuthored, readDispatched } from "./authored-prs.ts";
+import { AUTHORED_LEDGER, authoredTargets, CLOSE, decide, pendingDecisions, readAuthored, readDecisions, readDispatched } from "./authored-prs.ts";
 import { localConfig } from "./lib/org.ts";
 import type { Card } from "../webui/dashboard.ts";
 import { readLogs, stampLogs } from "./logs.ts";
@@ -69,7 +69,7 @@ async function queueLoop() {
   let failures = 0;
   for (;;) {
     try {
-      tick(ROOT, readLedger(args.ledger), Date.now(), RESPOND ? authoredTargets(readAuthored(), readDispatched()) : []);
+      tick(ROOT, readLedger(args.ledger), Date.now(), RESPOND ? authoredTargets(readAuthored(), readDispatched(), readDecisions()) : []);
       failures = 0;
     } catch (e) {
       console.error(`error: queue tick: ${(e as Error).message}`);
@@ -139,6 +139,24 @@ function rows(): Response {
   return json([...review, ...authored]);
 }
 
+// Answers mutate state, so only same-origin JSON posts from this dashboard are accepted.
+async function answer(req: Request): Promise<Response> {
+  const origin = req.headers.get("origin");
+  if (req.method !== "POST" || !req.headers.get("content-type")?.startsWith("application/json") || !origin || new URL(origin).host !== new URL(req.url).host)
+    return new Response("forbidden", { status: 403 });
+  try {
+    const { url, head, choice } = (await req.json()) as { url: string; head: string; choice: string };
+    if (choice === CLOSE) {
+      if (typeof AUTO_MERGE_APP !== "string" || !AUTO_MERGE_APP) throw new Error("authored_auto_merge_app is not set");
+      const r = Bun.spawnSync(["gh", "pr", "close", url], { env: { ...process.env, GHTKN_APP: AUTO_MERGE_APP }, stderr: "pipe" });
+      if (r.exitCode !== 0) throw new Error(`gh pr close failed: ${r.stderr.toString().trim()}`);
+    }
+    return json(decide(AUTHORED_LEDGER, url, head, choice));
+  } catch (e) {
+    return new Response((e as Error).message, { status: 409 });
+  }
+}
+
 async function asset(pathname: string): Promise<Response> {
   const path = resolve(DIST, "." + (pathname === "/" ? "/index.html" : pathname));
   const file = Bun.file(path);
@@ -155,6 +173,8 @@ Bun.serve({
     "/api/queue": () => json({ limit: CONCURRENCY, jobs: Object.values(readQueue(ROOT)) }),
     "/api/logs": () => { try { return json(readLogs(ROOT, readLedger(args.ledger))); } catch (e) { return fail(e); } },
     "/api/events": events,
+    "/api/decisions": () => { try { return json(pendingDecisions(readAuthored(), readDispatched(), readDecisions())); } catch (e) { return fail(e); } },
+    "/api/decide": answer,
   },
   fetch: (req) => asset(new URL(req.url).pathname),
 });
