@@ -44,12 +44,14 @@ test("reviewers drops bots, self and re-requested reviewers", () => {
 test("mergeCheck", () => {
   const live = { url: "u", number: 1, title: "t", isDraft: false, state: "OPEN", headRefOid: "a", author: { login: "me" }, repository: { nameWithOwner: "o/r" }, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", reviewDecision: "APPROVED" };
   const row = toRow(live, "");
-  expect(mergeCheck(row, live, "me", "SQUASH")).toEqual({ ok: true, method: "--squash" });
+  expect(mergeCheck(row, live, "me", "SQUASH")).toEqual({ ok: true, method: "--squash", now: true });
+  const ready = { ...live, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", autoMergeRequest: { enabledAt: "t" } };
+  expect(mergeCheck(row, ready, "me", "MERGE")).toEqual({ ok: true, method: "--merge", now: true });
   expect(mergeCheck(row, { ...live, headRefOid: "b" }, "me", "MERGE").ok).toBe(false);
   expect(mergeCheck(row, live, "other", "MERGE").ok).toBe(false);
   expect(mergeCheck(row, { ...live, state: "MERGED" }, "me", "MERGE").ok).toBe(false);
   expect(mergeCheck(row, { ...live, isDraft: true }, "me", "MERGE").ok).toBe(false);
-  expect(mergeCheck(row, { ...live, autoMergeRequest: { enabledAt: "t" } }, "me", "MERGE").ok).toBe(false);
+  expect(mergeCheck(row, { ...live, mergeStateStatus: "BLOCKED", autoMergeRequest: { enabledAt: "t" } }, "me", "MERGE").ok).toBe(false);
 });
 
 test("ball", () => {
