@@ -29,6 +29,9 @@
 	<string>Background</string>
 	<key>ProgramArguments</key>
 	<array>
+		<string>/bin/sh</string>
+		<string>@REPO_ROOT@/scripts/active-hours.sh</string>
+		<string>--hold</string>
 		<string>@HOME@/.local/share/aquaproj-aqua/bin/bun</string>
 		<string>run</string>
 		<string>start</string>
