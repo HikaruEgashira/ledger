@@ -305,7 +305,14 @@ function merge(path: string, urls: string[], yes: boolean): number {
       continue;
     }
     try {
-      gh(["pr", "merge", row.url, ...(c.now ? [] : ["--auto"]), c.method, "--match-head-commit", row.head_sha]);
+      try {
+        gh(["pr", "merge", row.url, ...(c.now ? [] : ["--auto"]), c.method, "--match-head-commit", row.head_sha]);
+      } catch (e) {
+        // Merge-queue branches reject an explicit strategy; enqueue instead.
+        if (!c.now || !/merge queue/i.test((e as Error).message)) throw e;
+        const id = gh(["pr", "view", row.url, "--json", "id", "-q", ".id"]).trim();
+        gh(["api", "graphql", "-f", "query=mutation($id: ID!, $sha: GitObjectID!) { enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $sha }) { clientMutationId } }", "-F", `id=${id}`, "-F", `sha=${row.head_sha}`]);
+      }
       console.log(`${c.now ? "merged" : "auto-merge"}\t${row.url}\t${c.method}`);
     } catch (e) {
       console.log(`fail\t${row.url}\t${(e as Error).message}`);
