@@ -336,15 +336,18 @@ interface Pending {
 }
 let pending: Pending[] = [];
 const FIXED: Record<string, string> = { "PRをclose": "danger", "保留": "mute", "自動対応で再試行": "mute" };
-async function answer(p: Pending, choice: string, card: HTMLElement) {
-  if (choice === "PRをclose" && !confirm(`${p.repository}#${p.pr_number} を close します`)) return;
+async function answer(p: Pending, choice: string, card: HTMLElement, custom = false) {
+  if (!custom && choice === "PRをclose" && !confirm(`${p.repository}#${p.pr_number} を close します`)) return;
   card.style.pointerEvents = "none";
   const res = await fetch("/api/decide", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ url: p.url, head: p.head, choice }),
+    body: JSON.stringify({ url: p.url, head: p.head, choice, custom }),
   });
-  if (!res.ok) alert(await res.text());
+  if (!res.ok) {
+    alert(await res.text());
+    card.style.pointerEvents = "";
+  }
   await refreshDecisions();
 }
 function renderDecide() {
@@ -365,7 +368,22 @@ function renderDecide() {
         b.onclick = () => void answer(p, o, card);
         opts.append(b);
       }
-      card.append(meta, el("div", "ask", p.question), opts);
+      const left = el("div", "body");
+      left.append(meta, el("div", "ask", p.question), opts);
+      const form = el("form", "free") as HTMLFormElement;
+      const ta = el("textarea") as HTMLTextAreaElement;
+      ta.placeholder = "自由記述で指示（⌘+Enter で送信）";
+      ta.maxLength = 2000;
+      const send = el("button", null, "送信") as HTMLButtonElement;
+      form.append(ta, send);
+      form.onsubmit = (e) => {
+        e.preventDefault();
+        if (ta.value.trim()) void answer(p, ta.value, card, true);
+      };
+      ta.onkeydown = (e) => {
+        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) form.requestSubmit();
+      };
+      card.append(left, form);
       return card;
     }),
   );

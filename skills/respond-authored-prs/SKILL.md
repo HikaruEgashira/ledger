@@ -93,7 +93,8 @@ exclusive options, each an action you can carry out as written (e.g. "SHA pin �
 
 Before anything else, run `bun app/src/authored-prs.ts decision <URL>`. If it
 prints a decision for the current head, the human answered your earlier question:
-carry out `choice` as the answer and do not dispatch the same question again.
+carry out `choice` as the answer (it may be a free-text instruction instead of one
+of your options) and do not dispatch the same question again.
 `自動対応で再試行` means retry with a fresh look; dispatch again only for a new question.
 
 ## Never
