@@ -270,12 +270,13 @@ export function pendingDecisions(rows: AuthoredRow[], d: Record<string, Dispatch
 }
 
 /** Record an answer; any choice but HOLD releases the head so the queue picks it up again. */
-export function decide(path: string, url: string, head: string, choice: string): Decision {
+export function decide(path: string, url: string, head: string, choice: string, custom = false): Decision {
   const d = readDispatched(path);
   const q = d[url];
   if (!q || q.head !== head) throw new Error("question is stale (new push or not dispatched)");
   const allowed = [...(q.options ?? []), RETRY, CLOSE, HOLD];
-  if (!allowed.includes(choice)) throw new Error(`unknown choice: ${choice}`);
+  choice = choice.trim();
+  if (custom ? !choice || choice.length > 2000 : !allowed.includes(choice)) throw new Error(`invalid choice: ${choice.slice(0, 80)}`);
   const dec = readDecisions(path);
   const a = { head, question: q.reason, choice, at: new Date().toISOString() };
   dec[url] = a;

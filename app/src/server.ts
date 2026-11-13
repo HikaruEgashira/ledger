@@ -145,13 +145,13 @@ async function answer(req: Request): Promise<Response> {
   if (req.method !== "POST" || !req.headers.get("content-type")?.startsWith("application/json") || !origin || new URL(origin).host !== new URL(req.url).host)
     return new Response("forbidden", { status: 403 });
   try {
-    const { url, head, choice } = (await req.json()) as { url: string; head: string; choice: string };
-    if (choice === CLOSE) {
+    const { url, head, choice, custom } = (await req.json()) as { url: string; head: string; choice: string; custom?: boolean };
+    if (!custom && choice === CLOSE) {
       if (typeof AUTO_MERGE_APP !== "string" || !AUTO_MERGE_APP) throw new Error("authored_auto_merge_app is not set");
       const r = Bun.spawnSync(["gh", "pr", "close", url], { env: { ...process.env, GHTKN_APP: AUTO_MERGE_APP }, stderr: "pipe" });
       if (r.exitCode !== 0) throw new Error(`gh pr close failed: ${r.stderr.toString().trim()}`);
     }
-    return json(decide(AUTHORED_LEDGER, url, head, choice));
+    return json(decide(AUTHORED_LEDGER, url, head, String(choice), custom === true));
   } catch (e) {
     return new Response((e as Error).message, { status: 409 });
   }
