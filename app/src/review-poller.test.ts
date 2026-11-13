@@ -48,6 +48,7 @@ describe("loadScopes", () => {
   it("builds author qualifiers", () => {
     expect(qualifier({ name: "a", profile: "", authors: ["x", "y"] }, ORG)).toBe(`org:${ORG} author:x author:y`);
     expect(qualifier({ name: "a", profile: "", authors: ["x"], repos: [`${ORG}/r`] }, ORG)).toBe(`repo:${ORG}/r author:x`);
+    expect(qualifier({ name: "a", profile: "", authors: ["x"], title: "t y" }, ORG)).toBe(`org:${ORG} author:x in:title "t y"`);
   });
 });
 
@@ -86,7 +87,7 @@ describe("poll", () => {
     const { gh, calls } = fakeGh([{ a: [[url(1), "h1"], [url(2), "h2"]] }, { a: [[url(3), "h3"]] }]);
     const out = poll({ ...base(root), gh, enqueue: (u) => u !== url(3), now: new Date("2026-11-03T00:20:00Z") });
     expect(out).toBe(`{"full":false,"open":3,"queued":["${url(2)}"]}`);
-    expect(calls[0]).toContain(`q=repo:${ORG}/repo -author:me is:pr is:open updated:>=2026-11-03T00:05:00Z`);
+    expect(calls[0]).toContain(`q=repo:${ORG}/repo -author:me is:pr is:open archived:false updated:>=2026-11-03T00:05:00Z`);
     expect(calls[1].slice(-2)).toEqual(["-f", "cursor=c1"]);
     expect(JSON.parse(readFileSync(join(dir, "heads.json"), "utf8"))).toEqual({ [url(1)]: "h1", [url(9)]: "h9", [url(2)]: "h2" });
     expect(readFileSync(join(dir, "last_poll.txt"), "utf8")).toBe("2026-11-03T00:10:00.123456+00:00");

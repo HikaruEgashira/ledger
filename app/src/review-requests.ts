@@ -244,7 +244,7 @@ function fetchSearchRange(
   from: number,
   to: number,
 ): Obj[] {
-  const query = `org:${org()} is:pr is:open ${qualifier}:${login} created:${isoDate(from)}..${isoDate(to)}`;
+  const query = `org:${org()} is:pr is:open archived:false ${qualifier}:${login} created:${isoDate(from)}..${isoDate(to)}`;
   const first = graphqlSearch(query);
   const issueCount = first.issueCount;
   if (!Number.isInteger(issueCount) || issueCount < 0)
