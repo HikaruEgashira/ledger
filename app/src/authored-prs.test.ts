@@ -106,7 +106,7 @@ test("decide accepts free-text answers only when marked custom", () => {
   const ledger = pj(dir, "authored_prs.jsonl");
   md(pj(dir, "logs"));
   wf(pj(dir, "logs", "authored-dispatched.json"), JSON.stringify({ u: { head: "h", reason: "q", at: "t" } }));
-  expect(() => decide(ledger, "u", "h", "自由記述")).toThrow();
+  expect(() => decide(ledger, "u", "h", "free text")).toThrow();
   expect(() => decide(ledger, "u", "h", "  ", true)).toThrow();
-  expect(decide(ledger, "u", "h", " 自由記述 ", true).choice).toBe("自由記述");
+  expect(decide(ledger, "u", "h", " free text ", true).choice).toBe("free text");
 });

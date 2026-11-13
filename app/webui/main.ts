@@ -335,9 +335,9 @@ interface Pending {
   held: boolean;
 }
 let pending: Pending[] = [];
-const FIXED: Record<string, string> = { "PRをclose": "danger", "保留": "mute", "自動対応で再試行": "mute" };
+const FIXED: Record<string, string> = { "Close PR": "danger", "Hold": "mute", "Retry": "mute" };
 async function answer(p: Pending, choice: string, card: HTMLElement, custom = false) {
-  if (!custom && choice === "PRをclose" && !confirm(`${p.repository}#${p.pr_number} を close します`)) return;
+  if (!custom && choice === "Close PR" && !confirm(`Close ${p.repository}#${p.pr_number}?`)) return;
   card.style.pointerEvents = "none";
   const res = await fetch("/api/decide", {
     method: "POST",
@@ -352,7 +352,7 @@ async function answer(p: Pending, choice: string, card: HTMLElement, custom = fa
 }
 function renderDecide() {
   const root = document.getElementById("decide")!;
-  if (!pending.length) return root.replaceChildren(el("div", "meta", "判断待ちはありません"));
+  if (!pending.length) return root.replaceChildren(el("div", "meta", "No pending decisions"));
   root.replaceChildren(
     ...pending.map((p) => {
       const card = el("div", p.held ? "q held" : "q");
@@ -361,7 +361,7 @@ function renderDecide() {
       a.href = p.url;
       a.target = "_blank";
       a.rel = "noopener";
-      meta.append(a, ` · ${p.reason} · ${fmtJst(p.asked_at)}${p.held ? " · 保留中" : ""} · ${p.title}`);
+      meta.append(a, ` · ${p.reason} · ${fmtJst(p.asked_at)}${p.held ? " · held" : ""} · ${p.title}`);
       const opts = el("div", "opts");
       for (const o of p.options) {
         const b = el("button", FIXED[o] ?? null, o);
@@ -369,7 +369,7 @@ function renderDecide() {
         opts.append(b);
       }
       const free = el("input", "free") as HTMLInputElement;
-      free.placeholder = "自由記述（Enter で送信）";
+      free.placeholder = "Other (Enter to send)";
       free.maxLength = 2000;
       free.onkeydown = (e) => {
         if (e.key === "Enter" && !e.isComposing && free.value.trim()) void answer(p, free.value, card, true);
