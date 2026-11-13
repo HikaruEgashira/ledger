@@ -286,45 +286,22 @@
         border: 1px solid var(--border);
         border-radius: 8px;
         padding: 10px 12px;
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(220px, 32%);
-        gap: 12px;
-      }
-      .q .body {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        min-width: 0;
-      }
-      .q .free {
         display: flex;
         flex-direction: column;
         gap: 6px;
       }
-      .q .free textarea {
-        flex: 1;
-        min-height: 64px;
-        resize: vertical;
+      .q .opts .free {
+        width: 16em;
         background: var(--panel);
         color: var(--text);
         border: 1px solid var(--border);
         border-radius: 6px;
-        padding: 6px 8px;
+        padding: 4px 10px;
         font: inherit;
       }
-      .q .free textarea:focus {
+      .q .opts .free:focus {
         outline: none;
         border-color: var(--accent);
-      }
-      .q .free button {
-        align-self: flex-end;
-        background: var(--accent);
-        color: var(--text);
-        border: 0;
-        border-radius: 6px;
-        padding: 4px 14px;
-        font: inherit;
-        cursor: pointer;
       }
       .q.held {
         opacity: 0.55;
