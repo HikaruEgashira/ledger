@@ -23,7 +23,7 @@ query($q: String!, $cursor: String) {
 }
 `;
 
-export type Scope = { name: string; profile: string; repo?: string; repos?: string[]; authors?: string[]; exclude_authors?: string[] };
+export type Scope = { name: string; profile: string; repo?: string; repos?: string[]; authors?: string[]; exclude_authors?: string[]; title?: string };
 export class PollerExit extends Error {}
 export type Gh = (args: string[]) => string;
 export type Enqueue = (url: string, scope: string) => boolean;
@@ -39,6 +39,8 @@ export function loadScopes(config: Record<string, any>, root = ROOT, orgName = o
       throw new PollerExit(`${where}: scope ${s.name} repo must be under ${orgName}`);
     if (s.repos?.length && (!s.authors?.length || !s.repos.every((r) => r.startsWith(`${orgName}/`))))
       throw new PollerExit(`${where}: scope ${s.name} repos needs authors and ${orgName} repos`);
+    if (s.title !== undefined && (!s.title.trim() || s.title.includes('"')))
+      throw new PollerExit(`${where}: scope ${s.name} title must be non-empty without double quotes`);
     s.exclude_authors = [...(config.exclude_authors ?? []), ...(s.exclude_authors ?? [])];
   }
   return scopes;
@@ -51,6 +53,7 @@ export function qualifier(s: Scope, orgName = org()): string {
     const where = s.repos?.length ? s.repos.map((r) => `repo:${r}`).join(" ") : `org:${orgName}`;
     base = where + " " + (s.authors ?? []).map((a) => `author:${a}`).join(" ");
   }
+  if (s.title) base += ` in:title "${s.title}"`;
   return [base, ...(s.exclude_authors ?? []).map((a) => `-author:${a}`)].join(" ");
 }
 
@@ -62,7 +65,7 @@ const runGh: Gh = (args) => {
 
 export function fetchScope(q: string, since: string | null, gh: Gh = runGh, orgName = org()): Map<string, string> {
   const urlRe = new RegExp(`^https://github\\.com/${escapeRe(orgName)}/[^/]+/pull/[1-9][0-9]*$`);
-  const query = `${q} is:pr is:open` + (since ? ` updated:>=${since}` : "");
+  const query = `${q} is:pr is:open archived:false` + (since ? ` updated:>=${since}` : "");
   const heads = new Map<string, string>();
   let cursor: string | null = null;
   for (;;) {

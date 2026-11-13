@@ -45,9 +45,9 @@ describe("groupLogs", () => {
     expect(g.count).toBe(2);
     expect(g.urls.length).toBe(2);
   });
-  it("downgrades CI failures and guard warnings", async () => {
+  it("downgrades CI failures and tool warnings", async () => {
     const { classify } = await import("./logs.ts");
-    expect(classify("ip-guard: warning: ONELOGIN_MFA_IP_ADDRESS が未設定です")).toBe("warn");
+    expect(classify("tool: warning: FOO is not set")).toBe("warn");
     expect(classify('{"event": "CI_FAILED"}')).toBe("warn");
   });
 });
