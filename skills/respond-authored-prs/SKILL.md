@@ -77,9 +77,9 @@ description does not promise), needs a product or business decision, or needs
 access you do not have.
 
 Phrase the decision as a closed question the human answers with one click on the
-dashboard's decide tab: one Japanese question plus 2-4 concrete, mutually
-exclusive options, each an action you can carry out as written (e.g. "SHA pin に戻す",
-"floating ref のまま維持"). Do not add close/hold/retry; the page always offers them.
+dashboard's decide tab: one question plus 2-4 concrete, mutually exclusive
+options, each an action you can carry out as written (e.g. "Pin to a commit SHA",
+"Keep the floating tag"). Do not add close/hold/retry; the page always offers them.
 
 1. Send one Slack DM to `notify_slack_user` in `config/config.toml`: the full PR
    URL and the question, in Japanese, one line.
@@ -95,7 +95,7 @@ Before anything else, run `bun app/src/authored-prs.ts decision <URL>`. If it
 prints a decision for the current head, the human answered your earlier question:
 carry out `choice` as the answer (it may be a free-text instruction instead of one
 of your options) and do not dispatch the same question again.
-`自動対応で再試行` means retry with a fresh look; dispatch again only for a new question.
+`Retry` means retry with a fresh look; dispatch again only for a new question.
 
 ## Never
 

@@ -213,9 +213,9 @@ export interface Decision {
   at: string;
 }
 export type Decisions = Record<string, Decision>;
-export const HOLD = "保留";
-export const CLOSE = "PRをclose";
-export const RETRY = "自動対応で再試行";
+export const HOLD = "Hold";
+export const CLOSE = "Close PR";
+export const RETRY = "Retry";
 const decisionPath = (ledger: string) => join(dirname(ledger), "logs", "authored-decisions.json");
 export function readDecisions(path = AUTHORED_LEDGER): Decisions {
   try {
