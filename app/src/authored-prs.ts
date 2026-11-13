@@ -237,17 +237,19 @@ query($owner: String!, $repo: String!, $n: Int!) {
 }`;
 const METHOD: Record<string, string> = { MERGE: "--merge", SQUASH: "--squash", REBASE: "--rebase" };
 
-export type MergeCheck = { ok: true; method: string } | { ok: false; reason: string };
+export type MergeCheck = { ok: true; method: string; now: boolean } | { ok: false; reason: string };
 // Enable auto-merge only on the user's own open, non-draft PR at the exact head recorded in the list.
 export function mergeCheck(row: AuthoredRow, live: any, viewer: string, defaultMethod: string): MergeCheck {
   if (!live || live.state !== "OPEN") return { ok: false, reason: `not open (${live?.state ?? "missing"})` };
   if (live.author?.login !== viewer) return { ok: false, reason: "not authored by viewer" };
   if (live.headRefOid !== row.head_sha) return { ok: false, reason: "head changed since sync" };
   if (live.isDraft) return { ok: false, reason: "draft" };
-  if (live.autoMergeRequest) return { ok: false, reason: "auto-merge already enabled" };
+  // Ready PRs merge directly so repos without auto-merge (or a stuck auto-merge) still land.
+  const now = live.mergeable === "MERGEABLE" && ["CLEAN", "HAS_HOOKS"].includes(live.mergeStateStatus);
+  if (live.autoMergeRequest && !now) return { ok: false, reason: "auto-merge already enabled" };
   const method = METHOD[defaultMethod];
   if (!method) return { ok: false, reason: `unknown merge method ${defaultMethod}` };
-  return { ok: true, method };
+  return { ok: true, method, now };
 }
 
 // Heads whose enable attempt failed (e.g. auto-merge disallowed); retried only after a new push.
@@ -275,7 +277,7 @@ function merge(path: string, urls: string[], yes: boolean): number {
   const failedHeads = readFailed(path);
   const targets = urls.length
     ? urls.map((u) => all.find((r) => r.url === u) ?? ({ url: u } as AuthoredRow))
-    : all.filter((r) => r.reason !== "draft" && !r.auto_merge && failedHeads[r.url] !== r.head_sha);
+    : all.filter((r) => r.reason === "mergeable" || (r.reason !== "draft" && !r.auto_merge && failedHeads[r.url] !== r.head_sha));
   let failed = 0;
   for (const row of targets) {
     if (!row.head_sha) {
@@ -299,15 +301,15 @@ function merge(path: string, urls: string[], yes: boolean): number {
       continue;
     }
     if (!yes) {
-      console.log(`would-enable\t${row.url}\t${c.method}\t${row.title}`);
+      console.log(`${c.now ? "would-merge" : "would-enable"}\t${row.url}\t${c.method}\t${row.title}`);
       continue;
     }
     try {
-      gh(["pr", "merge", row.url, "--auto", c.method, "--match-head-commit", row.head_sha]);
-      console.log(`auto-merge\t${row.url}\t${c.method}`);
+      gh(["pr", "merge", row.url, ...(c.now ? [] : ["--auto"]), c.method, "--match-head-commit", row.head_sha]);
+      console.log(`${c.now ? "merged" : "auto-merge"}\t${row.url}\t${c.method}`);
     } catch (e) {
       console.log(`fail\t${row.url}\t${(e as Error).message}`);
-      failedHeads[row.url] = row.head_sha;
+      if (!c.now) failedHeads[row.url] = row.head_sha;
       failed++;
     }
   }
