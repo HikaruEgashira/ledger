@@ -79,3 +79,24 @@ test("responded means the ball left the author", () => {
   expect(responded(arow({ status: "mine_ready_to_merge" }), {})).toBe(true);
   expect(responded(arow({}), { u: { head: "h", reason: "x", at: "t" } })).toBe(true);
 });
+
+import { mkdtempSync, writeFileSync as wf, mkdirSync as md } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as pj } from "node:path";
+import { CLOSE, HOLD, RETRY, decide, pendingDecisions, readDecisions, readDispatched } from "./authored-prs.ts";
+
+test("decide releases the head except on hold, and rejects stale answers", () => {
+  const dir = mkdtempSync(pj(tmpdir(), "dec-"));
+  const ledger = pj(dir, "authored_prs.jsonl");
+  md(pj(dir, "logs"));
+  wf(pj(dir, "logs", "authored-dispatched.json"), JSON.stringify({ u: { head: "h", reason: "A or B?", at: "2026-01-01T00:00:00Z", options: ["A", "B"] } }));
+  const row = arow({ url: "u", head_sha: "h" });
+  expect(pendingDecisions([row], readDispatched(ledger), {})[0].options).toEqual(["A", "B", RETRY, CLOSE, HOLD]);
+  expect(() => decide(ledger, "u", "old", "A")).toThrow();
+  expect(() => decide(ledger, "u", "h", "C")).toThrow();
+  decide(ledger, "u", "h", HOLD);
+  expect(pendingDecisions([row], readDispatched(ledger), readDecisions(ledger))[0].held).toBe(true);
+  decide(ledger, "u", "h", "A");
+  expect(readDispatched(ledger).u).toBeUndefined();
+  expect(authoredTargets([row], readDispatched(ledger), readDecisions(ledger))[0].updated).toContain(readDecisions(ledger).u.at);
+});

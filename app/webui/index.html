@@ -264,6 +264,69 @@
       body:not(.log) .log-only {
         display: none;
       }
+      #decide {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px;
+        display: none;
+        flex-direction: column;
+        gap: 8px;
+      }
+      body.decide #board {
+        display: none;
+      }
+      body.decide #decide {
+        display: flex;
+      }
+      body.decide nav > :not(#view) {
+        display: none;
+      }
+      .q {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .q.held {
+        opacity: 0.55;
+      }
+      .q .meta {
+        color: var(--faint);
+        font-size: 12px;
+      }
+      .q .meta a {
+        color: var(--blue);
+      }
+      .q .ask {
+        font-size: 14px;
+        white-space: pre-wrap;
+      }
+      .q .opts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .q .opts button {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 4px 10px;
+        font: inherit;
+        cursor: pointer;
+      }
+      .q .opts button:hover {
+        border-color: var(--accent);
+      }
+      .q .opts button.danger {
+        color: var(--red);
+      }
+      .q .opts button.mute {
+        color: var(--muted);
+      }
       input[type="search"] {
         background: var(--panel);
         color: var(--text);
@@ -387,7 +450,8 @@
     <nav>
       <div class="seg" id="view">
         <button data-v="board">board</button><button data-v="dash">dashboard</button
-        ><button data-v="log">log<span class="badge" id="errcount" hidden></span></button>
+        ><button data-v="log">log<span class="badge" id="errcount" hidden></span></button
+        ><button data-v="decide">decide<span class="badge" id="decidecount" hidden></span></button>
       </div>
       <div class="seg dash-only" id="unit">
         <button data-v="day">day</button><button data-v="week">week</button>
@@ -418,6 +482,7 @@
     <main id="board"></main>
     <section id="dash"></section>
     <section id="log"></section>
+    <section id="decide"></section>
     <div id="tip"></div>
     <script type="module" src="./main.ts"></script>
   </body>
