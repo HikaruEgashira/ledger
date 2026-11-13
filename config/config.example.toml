@@ -8,6 +8,10 @@ notify_slack_user = "U00000000"
 # Optional: queue your own PRs whose ball is with you (CI failed, conflicts, reviewer responded, no reviewer)
 # and answer them with skills/respond-authored-prs/SKILL.md using worker_command.
 # authored_respond = true
+# Run launchd jobs only in this hour window (start inclusive, end exclusive); omit to run always.
+# active_hours_start = 9
+# active_hours_end = 18
+# active_hours_tz = "Asia/Tokyo"
 exclude_authors = ["your-github-login"]
 worker_command = [
   "/usr/bin/env",
@@ -20,7 +24,7 @@ worker_command = [
   "/review-ledger-prs Process the ledger targets exactly once, then exit.",
 ]
 
-# Team scopes polled by app/src/review-poller.ts. Use exactly one of repo or authors (+ repos).
+# Team scopes polled by app/src/review-poller.ts. Use exactly one of repo or authors (+ repos); optional title narrows by PR title.
 [[scopes]]
 name = "team-repo"
 repo = "example-org/example-repo"

@@ -13,6 +13,7 @@ for tmpl in "$repo_root"/launchd/*.plist.in; do
   sed -e "s#@REPO_ROOT@#$repo_root#g" -e "s#@HOME@#$HOME#g" -e "s#@LABEL_PREFIX@#$prefix#g" -e "s#@GHTKN_READ_APP@#$ghtkn_read_app#g" "$tmpl" > "$out"
   plutil -lint "$out" >/dev/null
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+  i=0; while launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 && [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done
   launchctl bootstrap "gui/$(id -u)" "$out"
   echo "loaded $label -> $out"
 done

@@ -12,6 +12,7 @@
 cp config/config.example.toml config/config.toml          # org, GHTKN app, launchd label, 通知先, worker コマンド, team scope
 (cd app && bun install --frozen-lockfile)
 scripts/install-launchd.sh
+# config.toml の active_hours_start/end/tz を設定すると全 job がその時間帯のみ稼働（未設定なら常時）
 ```
 
 `REVIEW_ORG` 環境変数は `config.toml` の `org` より優先されます。
