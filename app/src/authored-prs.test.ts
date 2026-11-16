@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ball, classify, mergeCheck, reviewers, toRow, type Reviewers } from "./authored-prs.ts";
+import { assertOrgReadable, ball, classify, mergeCheck, reviewers, toRow, type Reviewers } from "./authored-prs.ts";
 
 const base = { isDraft: false, mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", checks: "SUCCESS" };
 const rv = (pending: string[], responded: [string, string, boolean?][] = []): Reviewers => ({
@@ -109,4 +109,11 @@ test("decide accepts free-text answers only when marked custom", () => {
   expect(() => decide(ledger, "u", "h", "free text")).toThrow();
   expect(() => decide(ledger, "u", "h", "  ", true)).toThrow();
   expect(decide(ledger, "u", "h", " free text ", true).choice).toBe("free text");
+});
+
+test("empty sync is trusted only when the org is readable", () => {
+  expect(() => assertOrgReadable({ data: { organization: { repositories: { nodes: [{ nameWithOwner: "o/r" }] } } } })).not.toThrow();
+  expect(() => assertOrgReadable({ errors: [{ message: "Resource protected by organization SAML enforcement." }] })).toThrow(/SAML/);
+  expect(() => assertOrgReadable({ data: { organization: { repositories: { nodes: [] } } } })).toThrow(/not readable/);
+  expect(() => assertOrgReadable({ data: { organization: null } })).toThrow(/not readable/);
 });
