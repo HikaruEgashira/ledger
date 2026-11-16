@@ -128,24 +128,36 @@ export function toRow(n: any, now: string): AuthoredRow {
   };
 }
 
+function graphql(args: string[]): any {
+  const cmd = ["gh", "api", "graphql", ...args];
+  let r = exec(cmd, { timeoutMs: 120_000 });
+  for (let i = 0; r.code !== 0 && i < 5 && (r.timedOut || /HTTP 5\d\d|timeout/i.test(r.stderr)); i++) {
+    Bun.sleepSync(2 ** i * 1000);
+    r = exec(cmd, { timeoutMs: 120_000 });
+  }
+  if (r.code !== 0) throw new Error(`gh api graphql failed${r.timedOut ? " (timeout)" : ""}: ${r.stderr.trim()}`);
+  return JSON.parse(r.stdout);
+}
+
 function fetchAll(): any[] {
   const out: any[] = [];
   let cursor: string | null = null;
   for (;;) {
-    const args = ["gh", "api", "graphql", "-f", `query=${QUERY}`, "-F", `q=is:pr is:open author:@me archived:false org:${org()}`];
+    const args = ["-f", `query=${QUERY}`, "-F", `q=is:pr is:open author:@me archived:false org:${org()}`];
     if (cursor) args.push("-F", `cursor=${cursor}`);
-    let r = exec(args, { timeoutMs: 120_000 });
-    for (let i = 0; r.code !== 0 && i < 5 && (r.timedOut || /HTTP 5\d\d|timeout/i.test(r.stderr)); i++) {
-      Bun.sleepSync(2 ** i * 1000);
-      r = exec(args, { timeoutMs: 120_000 });
-    }
-    if (r.code !== 0) throw new Error(`gh api graphql failed${r.timedOut ? " (timeout)" : ""}: ${r.stderr.trim()}`);
-    const s = JSON.parse(r.stdout)?.data?.search;
+    const s = graphql(args)?.data?.search;
     if (!s) throw new Error("unexpected GraphQL response");
     out.push(...s.nodes.filter((n: any) => n?.url));
     if (!s.pageInfo.hasNextPage) return out;
     cursor = s.pageInfo.endCursor;
   }
+}
+
+const PROBE = `query($o: String!) { organization(login: $o) { repositories(first: 1) { nodes { nameWithOwner } } } }`;
+/** Search silently returns 0 hits for an org the token lacks SAML access to; trust an empty result only if the org is readable. */
+export function assertOrgReadable(res: any): void {
+  if (res?.errors?.length) throw new Error(`org not readable: ${res.errors.map((e: any) => e.message).join("; ")}`);
+  if (!res?.data?.organization?.repositories?.nodes?.length) throw new Error("org not readable: no repositories visible");
 }
 
 export function readAuthored(path = AUTHORED_LEDGER): AuthoredRow[] {
@@ -162,6 +174,15 @@ function writeAuthored(path: string, rows: AuthoredRow[]): void {
 function sync(path: string): AuthoredRow[] {
   const now = new Date().toISOString();
   const rows = fetchAll().map((n) => toRow(n, now)).sort((a, b) => a.url.localeCompare(b.url));
+  if (!rows.length) {
+    let res: any;
+    try {
+      res = graphql(["-f", `query=${PROBE}`, "-F", `o=${org()}`]);
+    } catch (e) {
+      res = { errors: [{ message: (e as Error).message }] };
+    }
+    assertOrgReadable(res);
+  }
   writeAuthored(path, rows);
   return rows;
 }
