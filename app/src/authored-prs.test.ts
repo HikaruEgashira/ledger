@@ -51,6 +51,9 @@ test("mergeCheck", () => {
   expect(mergeCheck(row, live, "other", "MERGE").ok).toBe(false);
   expect(mergeCheck(row, { ...live, state: "MERGED" }, "me", "MERGE").ok).toBe(false);
   expect(mergeCheck(row, { ...live, isDraft: true }, "me", "MERGE").ok).toBe(false);
+  expect(mergeCheck(row, { ...live, changedFiles: 0 }, "me", "MERGE")).toEqual({ ok: true, close: true });
+  expect(mergeCheck(row, { ...live, changedFiles: 0, isDraft: true }, "me", "MERGE").ok).toBe(false);
+  expect(mergeCheck(row, { ...live, changedFiles: 0, headRefOid: "b" }, "me", "MERGE").ok).toBe(false);
   expect(mergeCheck(row, { ...live, mergeStateStatus: "BLOCKED", autoMergeRequest: { enabledAt: "t" } }, "me", "MERGE").ok).toBe(false);
 });
 

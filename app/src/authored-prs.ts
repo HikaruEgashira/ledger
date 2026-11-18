@@ -8,7 +8,7 @@ import { exec } from "./lib/util.ts";
 
 export const AUTHORED_LEDGER = join(resolve(import.meta.dir, "../.."), "authored_prs.jsonl");
 const PR_FIELDS = `
-  url number title isDraft createdAt updatedAt headRefOid state
+  url number title isDraft createdAt updatedAt headRefOid state changedFiles
   author { login }
   repository { nameWithOwner }
   mergeable mergeStateStatus reviewDecision
@@ -54,6 +54,7 @@ export interface AuthoredRow {
   pending_reviewers: string[];
   responded_reviewers: string[];
   auto_merge: boolean;
+  changed_files?: number;
   head_sha: string;
   mergeable: string;
   merge_state: string;
@@ -117,6 +118,7 @@ export function toRow(n: any, now: string): AuthoredRow {
     pending_reviewers: rv.pending,
     responded_reviewers: rv.responded.map((r) => `${r.login}:${r.state}${r.canPush ? "" : ":no-push"}`),
     auto_merge: !!n.autoMergeRequest,
+    changed_files: n.changedFiles,
     head_sha: n.headRefOid,
     mergeable: n.mergeable,
     merge_state: n.mergeStateStatus,
@@ -346,13 +348,15 @@ query($owner: String!, $repo: String!, $n: Int!) {
 }`;
 const METHOD: Record<string, string> = { MERGE: "--merge", SQUASH: "--squash", REBASE: "--rebase" };
 
-export type MergeCheck = { ok: true; method: string; now: boolean } | { ok: false; reason: string };
+export type MergeCheck = { ok: true; method: string; now: boolean } | { ok: true; close: true } | { ok: false; reason: string };
 // Enable auto-merge only on the user's own open, non-draft PR at the exact head recorded in the list.
 export function mergeCheck(row: AuthoredRow, live: any, viewer: string, defaultMethod: string): MergeCheck {
   if (!live || live.state !== "OPEN") return { ok: false, reason: `not open (${live?.state ?? "missing"})` };
   if (live.author?.login !== viewer) return { ok: false, reason: "not authored by viewer" };
   if (live.headRefOid !== row.head_sha) return { ok: false, reason: "head changed since sync" };
   if (live.isDraft) return { ok: false, reason: "draft" };
+  // An empty diff (e.g. base already absorbed the change) has nothing left to merge.
+  if (live.changedFiles === 0) return { ok: true, close: true };
   // Ready PRs merge directly so repos without auto-merge (or a stuck auto-merge) still land.
   const now = live.mergeable === "MERGEABLE" && ["CLEAN", "HAS_HOOKS"].includes(live.mergeStateStatus);
   if (live.autoMergeRequest && !now) return { ok: false, reason: "auto-merge already enabled" };
@@ -386,7 +390,7 @@ function merge(path: string, urls: string[], yes: boolean): number {
   const failedHeads = readFailed(path);
   const targets = urls.length
     ? urls.map((u) => all.find((r) => r.url === u) ?? ({ url: u } as AuthoredRow))
-    : all.filter((r) => r.reason === "mergeable" || (r.reason !== "draft" && !r.auto_merge && failedHeads[r.url] !== r.head_sha));
+    : all.filter((r) => r.reason === "mergeable" || (r.reason !== "draft" && (r.changed_files === 0 || (!r.auto_merge && failedHeads[r.url] !== r.head_sha))));
   let failed = 0;
   for (const row of targets) {
     if (!row.head_sha) {
@@ -407,6 +411,20 @@ function merge(path: string, urls: string[], yes: boolean): number {
     if (!c.ok) {
       console.log(`skip\t${row.url}\t${c.reason}`);
       failed++;
+      continue;
+    }
+    if ("close" in c) {
+      if (!yes) {
+        console.log(`would-close\t${row.url}\tempty diff\t${row.title}`);
+        continue;
+      }
+      try {
+        gh(["pr", "close", row.url, "--comment", "base との差分が無くなったため close します"]);
+        console.log(`closed\t${row.url}\tempty diff`);
+      } catch (e) {
+        console.log(`fail\t${row.url}\t${(e as Error).message}`);
+        failed++;
+      }
       continue;
     }
     if (!yes) {
