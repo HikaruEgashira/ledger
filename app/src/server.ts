@@ -59,7 +59,7 @@ async function authoredTick(): Promise<void> {
 async function authoredLoop() {
   for (;;) {
     await authoredTick();
-    await Bun.sleep(Math.max(300, Number(args.interval)) * 1000);
+    await Bun.sleep(Math.max(60, Number(args.interval)) * 1000);
   }
 }
 // Dispatch runs on its own cadence so a slow ledger sync never delays starting workers.
