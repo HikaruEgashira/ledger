@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { assertOrgReadable, ball, classify, mergeCheck, reviewers, toRow, type Reviewers } from "./authored-prs.ts";
+import { assertOrgReadable, ball, classify, mergeCheck, reviewers, stackPlan, toRow, type Reviewers } from "./authored-prs.ts";
 
 const base = { isDraft: false, mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", checks: "SUCCESS" };
 const rv = (pending: string[], responded: [string, string, boolean?][] = []): Reviewers => ({
@@ -119,4 +119,20 @@ test("empty sync is trusted only when the org is readable", () => {
   expect(() => assertOrgReadable({ errors: [{ message: "Resource protected by organization SAML enforcement." }] })).toThrow(/SAML/);
   expect(() => assertOrgReadable({ data: { organization: { repositories: { nodes: [] } } } })).toThrow(/not readable/);
   expect(() => assertOrgReadable({ data: { organization: null } })).toThrow(/not readable/);
+});
+
+test("stackPlan merges stacked PRs only together from the top", () => {
+  const pr = (n: number, base: string, head: string, reason = "mergeable") =>
+    ({ url: `u${n}`, repository: "o/r", pr_number: n, base_ref: base, head_ref: head, default_branch: "main", reason, head_sha: "s" }) as AuthoredRow;
+  const a = pr(1, "main", "a"), b = pr(2, "a", "b"), c = pr(3, "b", "c");
+  const all = [a, b, c];
+  expect(stackPlan(pr(9, "main", "x"), [pr(9, "main", "x")])).toEqual({ kind: "single" });
+  expect(stackPlan(a, all).kind).toBe("skip");
+  expect(stackPlan(b, all).kind).toBe("skip");
+  expect(stackPlan(c, all)).toEqual({ kind: "stack", top: c, members: [a, b, c] });
+  const notReady = [a, pr(2, "a", "b", "waiting_ci"), c];
+  expect(stackPlan(c, notReady)).toMatchObject({ kind: "skip", reason: expect.stringContaining("#2:waiting_ci") });
+  expect(stackPlan(pr(5, "feature", "y"), [pr(5, "feature", "y")]).kind).toBe("skip");
+  expect(stackPlan(c, [...all, pr(4, "b", "d")])).toMatchObject({ kind: "skip", reason: "stack branches (not linear)" });
+  expect(stackPlan({ ...a, base_ref: undefined }, [a]).kind).toBe("skip");
 });
