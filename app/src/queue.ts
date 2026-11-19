@@ -57,6 +57,13 @@ export function rowScope(row: Row): string | null {
   return null;
 }
 
+/** CI outcome a hold waited on: a check finishing changes no head or updatedAt, so it must change the job key. */
+export function ciKey(checks: unknown): string {
+  if (!Array.isArray(checks)) return "ci:unknown";
+  const red = checks.filter((c) => c?.state !== "success").map((c) => `${c.state}:${c.name}`).sort();
+  return red.length ? `ci:${red.join(",")}` : "ci:green";
+}
+
 /** Rows a worker should process now: scoped or directly requested, queued or awaiting post-approval verification. */
 export function targets(rows: Row[]): Target[] {
   const out: Target[] = [];
@@ -65,7 +72,7 @@ export function targets(rows: Row[]): Target[] {
     if (!scope) continue;
     if (r.live?.isDraft) continue; // drafts are not ready for review; they re-enter once marked ready
     const head = r.live?.headRefOid ?? r.intake?.head_sha ?? "";
-    const updated = r.live?.updatedAt ?? "";
+    const updated = `${r.live?.updatedAt ?? ""}|${ciKey(r.live?.checks)}`;
     const approvedHead = r.approval?.head_sha;
     const verifying = r.approval?.verification === "pending";
     // A rejected or unknown approval write never landed on GitHub, so the head still needs a review.
@@ -103,10 +110,10 @@ export function plan(
       succeeded ||= job.state === "running" && job.exit_code === 0;
       continue; // processed: the row left the queue
     }
-    // A new head or PR activity (e.g. resolved threads) is new work with a fresh budget.
+    // A new head, PR activity (e.g. resolved threads) or a CI outcome change is new work with a fresh budget.
     if (t.head !== job.head || t.updated !== job.updated) continue;
     if (job.state === "running") {
-      // A clean exit is done even without new evidence: the worker held the PR (CI red, open threads) and only a PR change is new work.
+      // A clean exit is done even without new evidence: the worker held the PR (CI red, open threads) and only a PR or CI change is new work.
       const ok = job.exit_code === 0;
       next[url] = {
         ...job,

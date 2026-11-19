@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { BACKOFF_MS, MAX_ATTEMPTS, MAX_REVIVALS, plan, settleExits, targets, type Queue, type Target } from "./queue.ts";
+import { BACKOFF_MS, ciKey, MAX_ATTEMPTS, MAX_REVIVALS, plan, settleExits, targets, type Queue, type Target } from "./queue.ts";
 
 const T = (n: number, head = "h1", updated = "u1"): Target => ({ url: `https://github.com/example-org/r/pull/${n}`, scope: "s", head, updated, priority: 50 });
 const dead = () => false;
@@ -141,5 +141,24 @@ describe("authored concurrency", () => {
     const a = (n: number): Target => ({ url: `https://github.com/o/r/pull/${n}`, kind: "authored", head: "h", updated: "u", priority: 60, scope: "authored" });
     const { start } = plan({}, [a(1), a(2), a(3)], 0, () => false, 50, 2);
     expect(start.length).toBe(2);
+  });
+});
+
+describe("queue CI key", () => {
+  const row = (checks: any) => ({ url: "u", status: "queued", intake: { source: "review-poller", scope: "s" }, live: { headRefOid: "h", updatedAt: "t", checks } });
+  it("re-enqueues a held job once CI finishes without a PR update", () => {
+    const [pending] = targets([row([{ name: "Pytest", state: "pending" }])]);
+    const r = plan({}, [pending], 0, dead);
+    r.start[0].pid = 5;
+    r.start[0].exit_code = 0;
+    const held = plan(r.queue, [pending], 1, dead).queue;
+    expect(held.u.state).toBe("done");
+    const [green] = targets([row([{ name: "Pytest", state: "success" }])]);
+    expect(plan(held, [green], 2, dead).start.map((j) => j.url)).toEqual(["u"]);
+  });
+  it("keys green, red and missing checks distinctly", () => {
+    expect(ciKey([{ name: "a", state: "success" }])).toBe("ci:green");
+    expect(ciKey([{ name: "b", state: "failure" }, { name: "a", state: "pending" }])).toBe("ci:failure:b,pending:a");
+    expect(ciKey(undefined)).toBe("ci:unknown");
   });
 });
