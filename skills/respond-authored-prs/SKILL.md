@@ -71,6 +71,10 @@ apology ("おっしゃる通りです", "ご指摘ありがとうございます
 
 ## Dispatch to the human
 
+Before dispatching, read `logs/decision-memory.md` (the human's past answers,
+generalized). If a rule there decides the question, act on it as if the human had
+answered and mention the rule in your PR comment; dispatch only when no rule applies.
+
 Dispatch instead of changing code when the needed change would drift from the PR
 description (scope expansion, different approach, behavior change the
 description does not promise), needs a product or business decision, or needs
