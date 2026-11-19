@@ -21,22 +21,19 @@
 		<key>XDG_CACHE_HOME</key>
 		<string>@HOME@/ghq/.cache</string>
 	</dict>
-	<key>StartCalendarInterval</key><dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict><key>_unused</key>
-	<true/>
+	<key>StartCalendarInterval</key>
+	<dict><key>Hour</key><integer>@RETRO_HOUR@</integer><key>Minute</key><integer>0</integer></dict>
 	<key>Label</key>
 	<string>@LABEL_PREFIX@.review-retro</string>
 	<key>ProcessType</key>
 	<string>Background</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/bin/sh</string>
-		<string>@REPO_ROOT@/scripts/active-hours.sh</string>
 		<string>/bin/zsh</string>
-		<string>-i</string>
 		<string>@REPO_ROOT@/scripts/daily-retro.sh</string>
 	</array>
 	<key>RunAtLoad</key>
-	<true/>
+	<false/>
 	<key>StandardErrorPath</key>
 	<string>@REPO_ROOT@/logs/review-retro.error.log</string>
 	<key>StandardOutPath</key>

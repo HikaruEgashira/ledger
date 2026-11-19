@@ -21,7 +21,7 @@ let ledger: string;
 let out: string[];
 
 function git(...args: string[]): string {
-  return execFileSync("git", ["-C", join(root, "repositories/example-org/x"), ...args], {
+  return execFileSync("git", ["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "-C", join(root, "repositories/example-org/x"), ...args], {
     encoding: "utf8",
     env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" },
   }).trim();
