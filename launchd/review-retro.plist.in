@@ -29,6 +29,8 @@
 	<string>Background</string>
 	<key>ProgramArguments</key>
 	<array>
+		<string>/bin/sh</string>
+		<string>@REPO_ROOT@/scripts/active-hours.sh</string>
 		<string>/bin/zsh</string>
 		<string>-i</string>
 		<string>@REPO_ROOT@/scripts/daily-retro.sh</string>

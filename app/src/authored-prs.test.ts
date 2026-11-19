@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ball, classify, mergeCheck, reviewers, toRow, type Reviewers } from "./authored-prs.ts";
+import { assertOrgReadable, ball, classify, mergeCheck, reviewers, toRow, type Reviewers } from "./authored-prs.ts";
 
 const base = { isDraft: false, mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", checks: "SUCCESS" };
 const rv = (pending: string[], responded: [string, string, boolean?][] = []): Reviewers => ({
@@ -44,12 +44,17 @@ test("reviewers drops bots, self and re-requested reviewers", () => {
 test("mergeCheck", () => {
   const live = { url: "u", number: 1, title: "t", isDraft: false, state: "OPEN", headRefOid: "a", author: { login: "me" }, repository: { nameWithOwner: "o/r" }, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", reviewDecision: "APPROVED" };
   const row = toRow(live, "");
-  expect(mergeCheck(row, live, "me", "SQUASH")).toEqual({ ok: true, method: "--squash" });
+  expect(mergeCheck(row, live, "me", "SQUASH")).toEqual({ ok: true, method: "--squash", now: true });
+  const ready = { ...live, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", autoMergeRequest: { enabledAt: "t" } };
+  expect(mergeCheck(row, ready, "me", "MERGE")).toEqual({ ok: true, method: "--merge", now: true });
   expect(mergeCheck(row, { ...live, headRefOid: "b" }, "me", "MERGE").ok).toBe(false);
   expect(mergeCheck(row, live, "other", "MERGE").ok).toBe(false);
   expect(mergeCheck(row, { ...live, state: "MERGED" }, "me", "MERGE").ok).toBe(false);
   expect(mergeCheck(row, { ...live, isDraft: true }, "me", "MERGE").ok).toBe(false);
-  expect(mergeCheck(row, { ...live, autoMergeRequest: { enabledAt: "t" } }, "me", "MERGE").ok).toBe(false);
+  expect(mergeCheck(row, { ...live, changedFiles: 0 }, "me", "MERGE")).toEqual({ ok: true, close: true });
+  expect(mergeCheck(row, { ...live, changedFiles: 0, isDraft: true }, "me", "MERGE").ok).toBe(false);
+  expect(mergeCheck(row, { ...live, changedFiles: 0, headRefOid: "b" }, "me", "MERGE").ok).toBe(false);
+  expect(mergeCheck(row, { ...live, mergeStateStatus: "BLOCKED", autoMergeRequest: { enabledAt: "t" } }, "me", "MERGE").ok).toBe(false);
 });
 
 test("ball", () => {
@@ -76,4 +81,42 @@ test("responded means the ball left the author", () => {
   expect(responded(arow({ status: "mine_review_requested" }), {})).toBe(true);
   expect(responded(arow({ status: "mine_ready_to_merge" }), {})).toBe(true);
   expect(responded(arow({}), { u: { head: "h", reason: "x", at: "t" } })).toBe(true);
+});
+
+import { mkdtempSync, writeFileSync as wf, mkdirSync as md } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as pj } from "node:path";
+import { CLOSE, HOLD, RETRY, decide, pendingDecisions, readDecisions, readDispatched } from "./authored-prs.ts";
+
+test("decide releases the head except on hold, and rejects stale answers", () => {
+  const dir = mkdtempSync(pj(tmpdir(), "dec-"));
+  const ledger = pj(dir, "authored_prs.jsonl");
+  md(pj(dir, "logs"));
+  wf(pj(dir, "logs", "authored-dispatched.json"), JSON.stringify({ u: { head: "h", reason: "A or B?", at: "2026-01-01T00:00:00Z", options: ["A", "B"] } }));
+  const row = arow({ url: "u", head_sha: "h" });
+  expect(pendingDecisions([row], readDispatched(ledger), {})[0].options).toEqual(["A", "B", RETRY, CLOSE, HOLD]);
+  expect(() => decide(ledger, "u", "old", "A")).toThrow();
+  expect(() => decide(ledger, "u", "h", "C")).toThrow();
+  decide(ledger, "u", "h", HOLD);
+  expect(pendingDecisions([row], readDispatched(ledger), readDecisions(ledger))[0].held).toBe(true);
+  decide(ledger, "u", "h", "A");
+  expect(readDispatched(ledger).u).toBeUndefined();
+  expect(authoredTargets([row], readDispatched(ledger), readDecisions(ledger))[0].updated).toContain(readDecisions(ledger).u.at);
+});
+
+test("decide accepts free-text answers only when marked custom", () => {
+  const dir = mkdtempSync(pj(tmpdir(), "dec-"));
+  const ledger = pj(dir, "authored_prs.jsonl");
+  md(pj(dir, "logs"));
+  wf(pj(dir, "logs", "authored-dispatched.json"), JSON.stringify({ u: { head: "h", reason: "q", at: "t" } }));
+  expect(() => decide(ledger, "u", "h", "free text")).toThrow();
+  expect(() => decide(ledger, "u", "h", "  ", true)).toThrow();
+  expect(decide(ledger, "u", "h", " free text ", true).choice).toBe("free text");
+});
+
+test("empty sync is trusted only when the org is readable", () => {
+  expect(() => assertOrgReadable({ data: { organization: { repositories: { nodes: [{ nameWithOwner: "o/r" }] } } } })).not.toThrow();
+  expect(() => assertOrgReadable({ errors: [{ message: "Resource protected by organization SAML enforcement." }] })).toThrow(/SAML/);
+  expect(() => assertOrgReadable({ data: { organization: { repositories: { nodes: [] } } } })).toThrow(/not readable/);
+  expect(() => assertOrgReadable({ data: { organization: null } })).toThrow(/not readable/);
 });

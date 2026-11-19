@@ -61,6 +61,13 @@ export interface Args {
 const RECEIPT_TYPES = new Set(["release", "observation", "incident", "recovery", "postmortem"]);
 const RECOVERY_STRATEGIES = new Set(["rollback", "feature-flag", "hotfix", "compatibility", "redeploy"]);
 const POST_MERGE_DISPATCH_STATUSES = new Set([...POST_MERGE_STATUSES].filter((s) => s !== "completed"));
+/** Deliveries merged longer ago than this are no longer worth agent monitoring time. */
+export const DELIVERY_GIVE_UP_MS = 3 * 24 * 60 * 60_000;
+const GAVE_UP = "delivery monitoring gave up: merged more than 3 days ago";
+const givenUp = (row: Obj) => {
+  const at = Date.parse((row.delivery || {}).merge?.merged_at ?? "");
+  return Number.isFinite(at) && Date.now() - at > DELIVERY_GIVE_UP_MS;
+};
 const ADVERSE = (r: Obj) =>
   (r.type === "release" && r.status === "failed") ||
   (r.type === "observation" && r.status === "degraded") ||
@@ -412,7 +419,8 @@ const dueLine = (row: Obj) => ({ status: row.status, url: row.url, merge: (row.d
 
 export function commandDue(args: Args): void {
   if (args.auto) return commandDueAuto(args);
-  for (const row of readLedger(args.ledger)) if (POST_MERGE_DISPATCH_STATUSES.has(row.status)) printJson(dueLine(row));
+  for (const row of readLedger(args.ledger))
+    if (POST_MERGE_DISPATCH_STATUSES.has(row.status) && !givenUp(row)) printJson(dueLine(row));
 }
 
 function githubReleaseRuns(row: Obj, workflow: string): Obj[] {
@@ -496,6 +504,10 @@ function commandDueAuto(args: Args): void {
       mode = p.release.mode;
       if (mode === "not_applicable" && row.status === "merged_waiting_release") {
         commandComplete({ ledger: args.ledger, url: row.url } as Args);
+        continue;
+      }
+      if (givenUp(row)) {
+        blockerUnchanged(args.ledger, row.url, GAVE_UP);
         continue;
       }
       if (

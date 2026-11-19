@@ -7,6 +7,8 @@
 
     <key>ProgramArguments</key>
     <array>
+        <string>/bin/sh</string>
+        <string>@REPO_ROOT@/scripts/active-hours.sh</string>
         <string>@HOME@/.local/share/aquaproj-aqua/bin/bun</string>
         <string>@REPO_ROOT@/app/src/review-requests.ts</string>
         <string>sync</string>

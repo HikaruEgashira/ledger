@@ -8,7 +8,7 @@ import { exec } from "./lib/util.ts";
 
 export const AUTHORED_LEDGER = join(resolve(import.meta.dir, "../.."), "authored_prs.jsonl");
 const PR_FIELDS = `
-  url number title isDraft createdAt updatedAt headRefOid state
+  url number title isDraft createdAt updatedAt headRefOid state changedFiles
   author { login }
   repository { nameWithOwner }
   mergeable mergeStateStatus reviewDecision
@@ -54,6 +54,7 @@ export interface AuthoredRow {
   pending_reviewers: string[];
   responded_reviewers: string[];
   auto_merge: boolean;
+  changed_files?: number;
   head_sha: string;
   mergeable: string;
   merge_state: string;
@@ -117,6 +118,7 @@ export function toRow(n: any, now: string): AuthoredRow {
     pending_reviewers: rv.pending,
     responded_reviewers: rv.responded.map((r) => `${r.login}:${r.state}${r.canPush ? "" : ":no-push"}`),
     auto_merge: !!n.autoMergeRequest,
+    changed_files: n.changedFiles,
     head_sha: n.headRefOid,
     mergeable: n.mergeable,
     merge_state: n.mergeStateStatus,
@@ -128,24 +130,36 @@ export function toRow(n: any, now: string): AuthoredRow {
   };
 }
 
+function graphql(args: string[]): any {
+  const cmd = ["gh", "api", "graphql", ...args];
+  let r = exec(cmd, { timeoutMs: 120_000 });
+  for (let i = 0; r.code !== 0 && i < 5 && (r.timedOut || /HTTP 5\d\d|timeout/i.test(r.stderr)); i++) {
+    Bun.sleepSync(2 ** i * 1000);
+    r = exec(cmd, { timeoutMs: 120_000 });
+  }
+  if (r.code !== 0) throw new Error(`gh api graphql failed${r.timedOut ? " (timeout)" : ""}: ${r.stderr.trim()}`);
+  return JSON.parse(r.stdout);
+}
+
 function fetchAll(): any[] {
   const out: any[] = [];
   let cursor: string | null = null;
   for (;;) {
-    const args = ["gh", "api", "graphql", "-f", `query=${QUERY}`, "-F", `q=is:pr is:open author:@me archived:false org:${org()}`];
+    const args = ["-f", `query=${QUERY}`, "-F", `q=is:pr is:open author:@me archived:false org:${org()}`];
     if (cursor) args.push("-F", `cursor=${cursor}`);
-    let r = exec(args, { timeoutMs: 120_000 });
-    for (let i = 0; r.code !== 0 && i < 5 && (r.timedOut || /HTTP 5\d\d|timeout/i.test(r.stderr)); i++) {
-      Bun.sleepSync(2 ** i * 1000);
-      r = exec(args, { timeoutMs: 120_000 });
-    }
-    if (r.code !== 0) throw new Error(`gh api graphql failed${r.timedOut ? " (timeout)" : ""}: ${r.stderr.trim()}`);
-    const s = JSON.parse(r.stdout)?.data?.search;
+    const s = graphql(args)?.data?.search;
     if (!s) throw new Error("unexpected GraphQL response");
     out.push(...s.nodes.filter((n: any) => n?.url));
     if (!s.pageInfo.hasNextPage) return out;
     cursor = s.pageInfo.endCursor;
   }
+}
+
+const PROBE = `query($o: String!) { organization(login: $o) { repositories(first: 1) { nodes { nameWithOwner } } } }`;
+/** Search silently returns 0 hits for an org the token lacks SAML access to; trust an empty result only if the org is readable. */
+export function assertOrgReadable(res: any): void {
+  if (res?.errors?.length) throw new Error(`org not readable: ${res.errors.map((e: any) => e.message).join("; ")}`);
+  if (!res?.data?.organization?.repositories?.nodes?.length) throw new Error("org not readable: no repositories visible");
 }
 
 export function readAuthored(path = AUTHORED_LEDGER): AuthoredRow[] {
@@ -162,13 +176,28 @@ function writeAuthored(path: string, rows: AuthoredRow[]): void {
 function sync(path: string): AuthoredRow[] {
   const now = new Date().toISOString();
   const rows = fetchAll().map((n) => toRow(n, now)).sort((a, b) => a.url.localeCompare(b.url));
+  if (!rows.length) {
+    let res: any;
+    try {
+      res = graphql(["-f", `query=${PROBE}`, "-F", `o=${org()}`]);
+    } catch (e) {
+      res = { errors: [{ message: (e as Error).message }] };
+    }
+    assertOrgReadable(res);
+  }
   writeAuthored(path, rows);
   return rows;
 }
 
 // Heads a worker handed to a human (intent change); the PR waits for the human, not the queue.
 const dispatchPath = (ledger: string) => join(dirname(ledger), "logs", "authored-dispatched.json");
-export function readDispatched(path = AUTHORED_LEDGER): Record<string, { head: string; reason: string; at: string }> {
+export interface Dispatch {
+  head: string;
+  reason: string;
+  at: string;
+  options?: string[];
+}
+export function readDispatched(path = AUTHORED_LEDGER): Record<string, Dispatch> {
   try {
     return JSON.parse(readFileSync(dispatchPath(path), "utf8"));
   } catch {
@@ -193,10 +222,93 @@ export interface AuthoredTarget {
   priority: number;
 }
 /** Own PRs whose ball is with the author; drafts stay the author's choice. */
-export function authoredTargets(rows: AuthoredRow[], d: ReturnType<typeof readDispatched>): AuthoredTarget[] {
+export function authoredTargets(rows: AuthoredRow[], d: ReturnType<typeof readDispatched>, dec: Decisions = {}): AuthoredTarget[] {
   return rows
     .filter((r) => r.status === "mine_changes_requested" && r.reason !== "draft" && !isDispatched(r, d))
-    .map((r) => ({ url: r.url, scope: "authored", head: r.head_sha, updated: activityKey(r), priority: 60 }));
+    .map((r) => ({ url: r.url, scope: "authored", head: r.head_sha, updated: [activityKey(r), dec[r.url]?.at ?? ""].join("|"), priority: 60 }));
+}
+
+// Human answers to dispatched questions; an answer at the current head re-queues the worker with it.
+export interface Decision {
+  head: string;
+  question: string;
+  choice: string;
+  at: string;
+}
+export type Decisions = Record<string, Decision>;
+export const HOLD = "Hold";
+export const CLOSE = "Close PR";
+export const RETRY = "Retry";
+const decisionPath = (ledger: string) => join(dirname(ledger), "logs", "authored-decisions.json");
+export function readDecisions(path = AUTHORED_LEDGER): Decisions {
+  try {
+    return JSON.parse(readFileSync(decisionPath(path), "utf8"));
+  } catch {
+    return {};
+  }
+}
+function writeJson(file: string, body: unknown): void {
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.tmp-${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(body, null, 1));
+  renameSync(tmp, file);
+}
+
+export interface PendingDecision {
+  url: string;
+  repository: string;
+  pr_number: number;
+  title: string;
+  reason: Reason;
+  head: string;
+  question: string;
+  options: string[];
+  asked_at: string;
+  held: boolean;
+}
+/** Dispatched heads still waiting for the human; held ones stay listed but sort last. */
+export function pendingDecisions(rows: AuthoredRow[], d: Record<string, Dispatch>, dec: Decisions): PendingDecision[] {
+  return rows
+    .filter((r) => r.status === "mine_changes_requested" && r.reason !== "draft" && isDispatched(r, d))
+    .map((r) => {
+      const q = d[r.url];
+      const a = dec[r.url];
+      const answered = a?.head === r.head_sha && a.at >= q.at;
+      return { r, q, answered, held: answered && a.choice === HOLD };
+    })
+    .filter((x) => !x.answered || x.held)
+    .map(({ r, q, held }) => ({
+      url: r.url,
+      repository: r.repository,
+      pr_number: r.pr_number,
+      title: r.title,
+      reason: r.reason,
+      head: r.head_sha,
+      question: q.reason,
+      options: [...new Set([...(q.options ?? []), RETRY, CLOSE, HOLD])],
+      asked_at: q.at,
+      held,
+    }))
+    .sort((a, b) => Number(a.held) - Number(b.held) || a.asked_at.localeCompare(b.asked_at));
+}
+
+/** Record an answer; any choice but HOLD releases the head so the queue picks it up again. */
+export function decide(path: string, url: string, head: string, choice: string, custom = false): Decision {
+  const d = readDispatched(path);
+  const q = d[url];
+  if (!q || q.head !== head) throw new Error("question is stale (new push or not dispatched)");
+  const allowed = [...(q.options ?? []), RETRY, CLOSE, HOLD];
+  choice = choice.trim();
+  if (custom ? !choice || choice.length > 2000 : !allowed.includes(choice)) throw new Error(`invalid choice: ${choice.slice(0, 80)}`);
+  const dec = readDecisions(path);
+  const a = { head, question: q.reason, choice, at: new Date().toISOString() };
+  dec[url] = a;
+  writeJson(decisionPath(path), dec);
+  if (choice !== HOLD) {
+    delete d[url];
+    writeJson(dispatchPath(path), d);
+  }
+  return a;
 }
 
 /** Re-fetch one PR, store it, and exit 0 only when the ball left the author. */
@@ -217,13 +329,12 @@ function check(path: string, url: string): number {
   return ok ? 0 : 1;
 }
 
-function dispatch(path: string, url: string, reason: string): void {
+function dispatch(path: string, url: string, reason: string, options: string[]): void {
   const row = readAuthored(path).find((r) => r.url === url);
   if (!row) throw new Error(`not in authored list: ${url}`);
   const d = readDispatched(path);
-  d[url] = { head: row.head_sha, reason, at: new Date().toISOString() };
-  mkdirSync(dirname(dispatchPath(path)), { recursive: true });
-  writeFileSync(dispatchPath(path), JSON.stringify(d, null, 1));
+  d[url] = { head: row.head_sha, reason, at: new Date().toISOString(), ...(options.length ? { options } : {}) };
+  writeJson(dispatchPath(path), d);
   console.log(`dispatched\t${url}`);
 }
 
@@ -237,17 +348,21 @@ query($owner: String!, $repo: String!, $n: Int!) {
 }`;
 const METHOD: Record<string, string> = { MERGE: "--merge", SQUASH: "--squash", REBASE: "--rebase" };
 
-export type MergeCheck = { ok: true; method: string } | { ok: false; reason: string };
+export type MergeCheck = { ok: true; method: string; now: boolean } | { ok: true; close: true } | { ok: false; reason: string };
 // Enable auto-merge only on the user's own open, non-draft PR at the exact head recorded in the list.
 export function mergeCheck(row: AuthoredRow, live: any, viewer: string, defaultMethod: string): MergeCheck {
   if (!live || live.state !== "OPEN") return { ok: false, reason: `not open (${live?.state ?? "missing"})` };
   if (live.author?.login !== viewer) return { ok: false, reason: "not authored by viewer" };
   if (live.headRefOid !== row.head_sha) return { ok: false, reason: "head changed since sync" };
   if (live.isDraft) return { ok: false, reason: "draft" };
-  if (live.autoMergeRequest) return { ok: false, reason: "auto-merge already enabled" };
+  // An empty diff (e.g. base already absorbed the change) has nothing left to merge.
+  if (live.changedFiles === 0) return { ok: true, close: true };
+  // Ready PRs merge directly so repos without auto-merge (or a stuck auto-merge) still land.
+  const now = live.mergeable === "MERGEABLE" && ["CLEAN", "HAS_HOOKS"].includes(live.mergeStateStatus);
+  if (live.autoMergeRequest && !now) return { ok: false, reason: "auto-merge already enabled" };
   const method = METHOD[defaultMethod];
   if (!method) return { ok: false, reason: `unknown merge method ${defaultMethod}` };
-  return { ok: true, method };
+  return { ok: true, method, now };
 }
 
 // Heads whose enable attempt failed (e.g. auto-merge disallowed); retried only after a new push.
@@ -275,7 +390,7 @@ function merge(path: string, urls: string[], yes: boolean): number {
   const failedHeads = readFailed(path);
   const targets = urls.length
     ? urls.map((u) => all.find((r) => r.url === u) ?? ({ url: u } as AuthoredRow))
-    : all.filter((r) => r.reason !== "draft" && !r.auto_merge && failedHeads[r.url] !== r.head_sha);
+    : all.filter((r) => r.reason === "mergeable" || (r.reason !== "draft" && (r.changed_files === 0 || (!r.auto_merge && failedHeads[r.url] !== r.head_sha))));
   let failed = 0;
   for (const row of targets) {
     if (!row.head_sha) {
@@ -298,16 +413,37 @@ function merge(path: string, urls: string[], yes: boolean): number {
       failed++;
       continue;
     }
+    if ("close" in c) {
+      if (!yes) {
+        console.log(`would-close\t${row.url}\tempty diff\t${row.title}`);
+        continue;
+      }
+      try {
+        gh(["pr", "close", row.url, "--comment", "base との差分が無くなったため close します"]);
+        console.log(`closed\t${row.url}\tempty diff`);
+      } catch (e) {
+        console.log(`fail\t${row.url}\t${(e as Error).message}`);
+        failed++;
+      }
+      continue;
+    }
     if (!yes) {
-      console.log(`would-enable\t${row.url}\t${c.method}\t${row.title}`);
+      console.log(`${c.now ? "would-merge" : "would-enable"}\t${row.url}\t${c.method}\t${row.title}`);
       continue;
     }
     try {
-      gh(["pr", "merge", row.url, "--auto", c.method, "--match-head-commit", row.head_sha]);
-      console.log(`auto-merge\t${row.url}\t${c.method}`);
+      try {
+        gh(["pr", "merge", row.url, ...(c.now ? [] : ["--auto"]), c.method, "--match-head-commit", row.head_sha]);
+      } catch (e) {
+        // Merge-queue branches reject an explicit strategy; enqueue instead.
+        if (!c.now || !/merge queue/i.test((e as Error).message)) throw e;
+        const id = gh(["pr", "view", row.url, "--json", "id", "-q", ".id"]).trim();
+        gh(["api", "graphql", "-f", "query=mutation($id: ID!, $sha: GitObjectID!) { enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $sha }) { clientMutationId } }", "-F", `id=${id}`, "-F", `sha=${row.head_sha}`]);
+      }
+      console.log(`${c.now ? "merged" : "auto-merge"}\t${row.url}\t${c.method}`);
     } catch (e) {
       console.log(`fail\t${row.url}\t${(e as Error).message}`);
-      failedHeads[row.url] = row.head_sha;
+      if (!c.now) failedHeads[row.url] = row.head_sha;
       failed++;
     }
   }
@@ -326,15 +462,21 @@ if (import.meta.main) {
       all: { type: "boolean", default: false },
       yes: { type: "boolean", default: false },
       reason: { type: "string" },
+      option: { type: "string", multiple: true },
     },
   });
   const cmd = positionals[0] ?? "list";
-  if (!["sync", "list", "merge", "check", "dispatch"].includes(cmd) || (["check", "dispatch"].includes(cmd) && !positionals[1]) || (cmd === "dispatch" && !values.reason)) {
-    console.error("usage: authored-prs.ts [--ledger PATH] {sync|list [--all]|merge [--yes] [URL...]|check URL|dispatch URL --reason TEXT}");
+  if (!["sync", "list", "merge", "check", "dispatch", "decision"].includes(cmd) || (["check", "dispatch", "decision"].includes(cmd) && !positionals[1]) || (cmd === "dispatch" && !values.reason)) {
+    console.error("usage: authored-prs.ts [--ledger PATH] {sync|list [--all]|merge [--yes] [URL...]|check URL|dispatch URL --reason TEXT [--option TEXT]...|decision URL}");
     process.exit(2);
   }
   if (cmd === "check") process.exit(check(values.ledger!, positionals[1]));
-  if (cmd === "dispatch") process.exit((dispatch(values.ledger!, positionals[1], values.reason!), 0));
+  if (cmd === "dispatch") process.exit((dispatch(values.ledger!, positionals[1], values.reason!, values.option ?? []), 0));
+  if (cmd === "decision") {
+    const a = readDecisions(values.ledger!)[positionals[1]];
+    if (a) console.log(`question\t${a.question}\nchoice\t${a.choice}\nhead\t${a.head}\nat\t${a.at}`);
+    process.exit(a ? 0 : 1);
+  }
   if (cmd === "merge") process.exit(merge(values.ledger!, positionals.slice(1), values.yes!));
   const rows = cmd === "sync" ? sync(values.ledger!) : readAuthored(values.ledger!);
   for (const r of rows.filter((r) => values.all || r.reason === "mergeable")) console.log(`${r.reason}\t${r.url}\t${r.title}`);

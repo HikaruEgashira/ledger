@@ -34,7 +34,7 @@ const COLUMNS = [
 const collapsed = new Set(["completed", "closed"]);
 const kinds = new Set<string>(JSON.parse(localStorage.getItem("kinds") ?? '["review","authored"]'));
 const state: { view: string; unit: Unit; author: string; level: LevelFilter; source: string; q: string; group: string; range: Range } = {
-  view: ["#dash", "#log"].includes(location.hash) ? location.hash.slice(1) : "board",
+  view: ["#dash", "#log", "#decide"].includes(location.hash) ? location.hash.slice(1) : "board",
   unit: "day",
   author: "",
   level: "error",
@@ -322,9 +322,81 @@ function syncSources() {
   sel.replaceChildren(new Option("source", ""), ...names.map((n) => new Option(n, n)));
   sel.value = state.source;
 }
+interface Pending {
+  url: string;
+  repository: string;
+  pr_number: number;
+  title: string;
+  reason: string;
+  head: string;
+  question: string;
+  options: string[];
+  asked_at: string;
+  held: boolean;
+}
+let pending: Pending[] = [];
+const FIXED: Record<string, string> = { "Close PR": "danger", "Hold": "mute", "Retry": "mute" };
+async function answer(p: Pending, choice: string, card: HTMLElement, custom = false) {
+  if (!custom && choice === "Close PR" && !confirm(`Close ${p.repository}#${p.pr_number}?`)) return;
+  card.style.pointerEvents = "none";
+  const res = await fetch("/api/decide", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ url: p.url, head: p.head, choice, custom }),
+  });
+  if (!res.ok) {
+    alert(await res.text());
+    card.style.pointerEvents = "";
+  }
+  await refreshDecisions();
+}
+function renderDecide() {
+  const root = document.getElementById("decide")!;
+  if (!pending.length) return root.replaceChildren(el("div", "meta", "No pending decisions"));
+  root.replaceChildren(
+    ...pending.map((p) => {
+      const card = el("div", p.held ? "q held" : "q");
+      const meta = el("div", "meta");
+      const a = el("a", null, `${p.repository}#${p.pr_number}`) as HTMLAnchorElement;
+      a.href = p.url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      meta.append(a, ` · ${p.reason} · ${fmtJst(p.asked_at)}${p.held ? " · held" : ""} · ${p.title}`);
+      const opts = el("div", "opts");
+      for (const o of p.options) {
+        const b = el("button", FIXED[o] ?? null, o);
+        b.onclick = () => void answer(p, o, card);
+        opts.append(b);
+      }
+      const free = el("input", "free") as HTMLInputElement;
+      free.placeholder = "Other (Enter to send)";
+      free.maxLength = 2000;
+      free.onkeydown = (e) => {
+        if (e.key === "Enter" && !e.isComposing && free.value.trim()) void answer(p, free.value, card, true);
+      };
+      opts.append(free);
+      card.append(meta, el("div", "ask", p.question), opts);
+      return card;
+    }),
+  );
+}
+async function refreshDecisions() {
+  try {
+    const res = await fetch("/api/decisions", { cache: "no-store" });
+    if (res.ok) {
+      pending = await res.json();
+      render();
+    }
+  } catch {}
+}
 function render() {
   document.body.classList.toggle("dash", state.view === "dash");
   document.body.classList.toggle("log", state.view === "log");
+  document.body.classList.toggle("decide", state.view === "decide");
+  const open = pending.filter((p) => !p.held).length;
+  const dbadge = document.getElementById("decidecount")!;
+  dbadge.hidden = open === 0;
+  dbadge.textContent = String(open);
   const n = countErrors(logs.filter((e) => inRange(e, state.range)));
   const badge = document.getElementById("errcount")!;
   badge.hidden = n === 0;
@@ -336,6 +408,7 @@ function render() {
   const rows = last.filter((r) => kinds.has(r.kind ?? "review") && (!state.author || r.author === state.author));
   if (state.view === "dash") renderDash(rows);
   else if (state.view === "log") renderLog();
+  else if (state.view === "decide") renderDecide();
   else renderBoard(rows);
 }
 for (const id of ["view", "unit", "level", "group", "range"] as const)
@@ -392,5 +465,6 @@ async function refreshLogs() {
 new EventSource("/api/events").onmessage = () => {
   void refresh();
   void refreshLogs();
+  void refreshDecisions();
 };
 setInterval(refreshLogs, 30_000);
