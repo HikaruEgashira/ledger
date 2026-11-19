@@ -462,9 +462,23 @@ async function refreshLogs() {
     }
   } catch {}
 }
-new EventSource("/api/events").onmessage = () => {
+let sync: { running: boolean; next_at: number | null } = { running: false, next_at: null };
+const events = new EventSource("/api/events");
+events.addEventListener("sync", (e) => {
+  sync = JSON.parse((e as MessageEvent).data);
+  tickSync();
+});
+events.onmessage = () => {
   void refresh();
   void refreshLogs();
   void refreshDecisions();
 };
 setInterval(refreshLogs, 30_000);
+
+function tickSync() {
+  const node = document.getElementById("sync")!;
+  if (sync.running) node.textContent = "⟳ syncing";
+  else if (sync.next_at === null) node.textContent = "";
+  else node.textContent = `⟳ ${Math.max(0, Math.ceil((sync.next_at - Date.now()) / 1000))}s`;
+}
+setInterval(tickSync, 1_000);

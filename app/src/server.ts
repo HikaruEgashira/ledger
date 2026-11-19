@@ -3,6 +3,7 @@ import { join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { readLedger, toCard } from "./ledger.ts";
 import { AUTHORED_LEDGER, authoredTargets, CLOSE, decide, pendingDecisions, readAuthored, readDecisions, readDispatched } from "./authored-prs.ts";
+import { examples, readHandled, watch, writeHandled } from "./auto-decide.ts";
 import { localConfig } from "./lib/org.ts";
 import type { Card } from "../webui/dashboard.ts";
 import { readLogs, stampLogs } from "./logs.ts";
@@ -56,10 +57,29 @@ async function authoredTick(): Promise<void> {
     console.error(`error: authored sync/merge: ${(e as Error).message}`);
   }
 }
+let syncState: { running: boolean; next_at: number | null } = { running: false, next_at: null };
 async function authoredLoop() {
   for (;;) {
+    syncState = { running: true, next_at: null };
     await authoredTick();
-    await Bun.sleep(Math.max(60, Number(args.interval)) * 1000);
+    const ms = Math.max(60, Number(args.interval)) * 1000;
+    syncState = { running: false, next_at: Date.now() + ms };
+    await Bun.sleep(ms);
+  }
+}
+// After a human answer, watch for more; QUIET_MS after the latest one, auto-answer similar pending questions in a child.
+async function autoDecideLoop() {
+  for (;;) {
+    try {
+      const w = watch(examples().last, readHandled(), Date.now());
+      if (w.state === "due") {
+        writeHandled(AUTHORED_LEDGER, w.last);
+        await Bun.spawn([process.execPath, join(ROOT, "app/src/auto-decide.ts")], { stdio: ["ignore", "inherit", "inherit"] }).exited;
+      }
+    } catch (e) {
+      console.error(`error: auto-decide: ${(e as Error).message}`);
+    }
+    await Bun.sleep(30_000);
   }
 }
 // Dispatch runs on its own cadence so a slow ledger sync never delays starting workers.
@@ -95,6 +115,7 @@ async function loop() {
 
 function events(req: Request): Response {
   let seen: number | null = null;
+  let sentSync: typeof syncState | null = null;
   let timer: Timer;
   const stream = new ReadableStream({
     start(c) {
@@ -102,6 +123,8 @@ function events(req: Request): Response {
         const mtime = [args.ledger, AUTHORED_LEDGER].reduce((m, p) => m + (existsSync(p) ? statSync(p).mtimeMs : 0), 0);
         c.enqueue(mtime !== seen ? "data: changed\n\n" : ": ping\n\n");
         seen = mtime;
+        if (syncState !== sentSync) c.enqueue(`event: sync\ndata: ${JSON.stringify(syncState)}\n\n`);
+        sentSync = syncState;
       }, 1000);
       req.signal.addEventListener("abort", () => clearInterval(timer));
     },
@@ -182,3 +205,4 @@ console.error(`http://${args.host}:${args.port}/`);
 void loop();
 void queueLoop();
 void authoredLoop();
+if (RESPOND) void autoDecideLoop();
