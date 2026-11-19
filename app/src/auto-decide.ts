@@ -17,6 +17,7 @@ import {
 } from "./authored-prs.ts";
 import { localConfig } from "./lib/org.ts";
 import { exec } from "./lib/util.ts";
+import { BATCH, oneShot, workerCommand } from "./lib/worker.ts";
 
 export const QUIET_MS = 10 * 60_000;
 const ROOT = resolve(import.meta.dir, "../..");
@@ -126,11 +127,8 @@ export function parseAnswers(raw: unknown, pending: PendingDecision[], ex: Examp
   });
 }
 
-// worker_command minus its prompt; plain json output yields one result object.
 function ask(text: string): string {
-  const command: string[] = localConfig(join(ROOT, "config/config.toml")).worker_command;
-  const base = command.slice(0, -2).map((a, i, all) => (all[i - 1] === "--output-format" ? "json" : a)).filter((a) => a !== "--verbose");
-  const r = exec([...base, "-p", text], { timeoutMs: 10 * 60_000, cwd: ROOT });
+  const r = exec(oneShot(workerCommand(), text, { ...BATCH, json: true }), { timeoutMs: 10 * 60_000, cwd: ROOT });
   if (r.code !== 0) throw new Error(`auto-decide model call failed: ${r.stderr.slice(0, 300)}`);
   try {
     return String(JSON.parse(r.stdout).result ?? "");

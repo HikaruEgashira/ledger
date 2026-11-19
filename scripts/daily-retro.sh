@@ -1,11 +1,12 @@
-#!/bin/zsh -i
-# Daily closed loop: aggregate stats -> `code -p` implements one improvement -> restore on failed verification.
-# Runs as interactive zsh so the user's `code` alias (CLAUDE_CONFIG_DIR=~/.claude-code claude) resolves.
+#!/bin/zsh
+# End-of-day closed loop: auto-decide batch, aggregate stats -> worker_command (opus, low effort) implements one improvement -> restore on failed verification.
 set -u
 root=${0:A:h:h}
 cd "$root"
 day=$(date +%F)
 log="$root/logs/retro/$day.log"
+mkdir -p "$root/logs/retro"
+bun app/src/auto-decide.ts >> "$log" 2>&1 || echo "auto-decide failed" >> "$log"
 summary=$(bun app/src/daily-retro.ts) || exit 1
 backup="$root/logs/retro/$day.tar.gz"
 tar -czf "$backup" app/src skills config scripts launchd README.md
@@ -24,8 +25,7 @@ review-artifacts/ 配下は読まないこと。
 制約: 作成者向けレビューコメントに決定的ロジックの詳細を出さない。完全に決定的に承認する場合の本文は「LGTM!」のみ。
 改善余地がなければ history.md に「変更なし」と理由を1行書いて終える。"
 
-# Prompt goes via stdin: --allowedTools is variadic and would swallow a trailing prompt argument.
-print -r -- "$prompt" | code -p --permission-mode acceptEdits --allowedTools "Read,Edit,Write,Bash" >> "$log" 2>&1
+print -r -- "$prompt" | bun app/src/lib/worker.ts >> "$log" 2>&1
 
 if ! (cd app && bun test >> "$log" 2>&1 && bun run typecheck >> "$log" 2>&1); then
   tar -xzf "$backup"

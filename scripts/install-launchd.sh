@@ -7,10 +7,12 @@ mkdir -p "$dest" "$repo_root/logs"
 conf() { (cd "$repo_root/app" && bun -e 'import { localConfig } from "./src/lib/org.ts"; console.log(localConfig()[process.argv[1]])' "$1"); }
 prefix=$(conf launchd_label_prefix)
 ghtkn_read_app=$(conf ghtkn_read_app)
+# The daily retro runs when the active window closes (default 18:00).
+retro_hour=$(conf active_hours_end); case $retro_hour in ''|undefined) retro_hour=18 ;; esac
 for tmpl in "$repo_root"/launchd/*.plist.in; do
   label="$prefix.$(basename "$tmpl" .plist.in)"
   out="$dest/$label.plist"
-  sed -e "s#@REPO_ROOT@#$repo_root#g" -e "s#@HOME@#$HOME#g" -e "s#@LABEL_PREFIX@#$prefix#g" -e "s#@GHTKN_READ_APP@#$ghtkn_read_app#g" "$tmpl" > "$out"
+  sed -e "s#@REPO_ROOT@#$repo_root#g" -e "s#@HOME@#$HOME#g" -e "s#@LABEL_PREFIX@#$prefix#g" -e "s#@GHTKN_READ_APP@#$ghtkn_read_app#g" -e "s#@RETRO_HOUR@#$retro_hour#g" "$tmpl" > "$out"
   plutil -lint "$out" >/dev/null
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
   i=0; while launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 && [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done
