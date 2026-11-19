@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Sync the authenticated user's own open PRs into authored_prs.jsonl (separate from the review ledger).
-import { mkdirSync, renameSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, renameSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { org } from "./lib/org.ts";
@@ -240,6 +240,7 @@ export interface Decision {
   question: string;
   choice: string;
   at: string;
+  by?: "human" | "auto";
 }
 export type Decisions = Record<string, Decision>;
 export const HOLD = "Hold";
@@ -251,6 +252,19 @@ export function readDecisions(path = AUTHORED_LEDGER): Decisions {
     return JSON.parse(readFileSync(decisionPath(path), "utf8"));
   } catch {
     return {};
+  }
+}
+// Append-only answer history; the auto-decider learns from the human rows.
+export const historyPath = (ledger: string) => join(dirname(ledger), "logs", "authored-decisions.jsonl");
+export interface HistoryEntry extends Decision {
+  url: string;
+  options: string[];
+}
+export function readHistory(path = AUTHORED_LEDGER): HistoryEntry[] {
+  try {
+    return readFileSync(historyPath(path), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  } catch {
+    return [];
   }
 }
 function writeJson(file: string, body: unknown): void {
@@ -299,7 +313,7 @@ export function pendingDecisions(rows: AuthoredRow[], d: Record<string, Dispatch
 }
 
 /** Record an answer; any choice but HOLD releases the head so the queue picks it up again. */
-export function decide(path: string, url: string, head: string, choice: string, custom = false): Decision {
+export function decide(path: string, url: string, head: string, choice: string, custom = false, by: "human" | "auto" = "human"): Decision {
   const d = readDispatched(path);
   const q = d[url];
   if (!q || q.head !== head) throw new Error("question is stale (new push or not dispatched)");
@@ -307,9 +321,11 @@ export function decide(path: string, url: string, head: string, choice: string, 
   choice = choice.trim();
   if (custom ? !choice || choice.length > 2000 : !allowed.includes(choice)) throw new Error(`invalid choice: ${choice.slice(0, 80)}`);
   const dec = readDecisions(path);
-  const a = { head, question: q.reason, choice, at: new Date().toISOString() };
+  const a: Decision = { head, question: q.reason, choice, at: new Date().toISOString(), by };
   dec[url] = a;
   writeJson(decisionPath(path), dec);
+  mkdirSync(dirname(historyPath(path)), { recursive: true });
+  appendFileSync(historyPath(path), JSON.stringify({ ...a, url, options: allowed }) + "\n");
   if (choice !== HOLD) {
     delete d[url];
     writeJson(dispatchPath(path), d);
