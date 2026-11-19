@@ -8,9 +8,9 @@ import { exec } from "./lib/util.ts";
 
 export const AUTHORED_LEDGER = join(resolve(import.meta.dir, "../.."), "authored_prs.jsonl");
 const PR_FIELDS = `
-  url number title isDraft createdAt updatedAt headRefOid state changedFiles
+  url number title isDraft createdAt updatedAt headRefOid state changedFiles baseRefName headRefName
   author { login }
-  repository { nameWithOwner }
+  repository { nameWithOwner defaultBranchRef { name } }
   mergeable mergeStateStatus reviewDecision
   autoMergeRequest { enabledAt }
   reviewRequests(first: 30) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } ... on Bot { login } } } }
@@ -56,6 +56,9 @@ export interface AuthoredRow {
   auto_merge: boolean;
   changed_files?: number;
   head_sha: string;
+  base_ref?: string;
+  head_ref?: string;
+  default_branch?: string;
   mergeable: string;
   merge_state: string;
   review_decision: string | null;
@@ -120,6 +123,9 @@ export function toRow(n: any, now: string): AuthoredRow {
     auto_merge: !!n.autoMergeRequest,
     changed_files: n.changedFiles,
     head_sha: n.headRefOid,
+    base_ref: n.baseRefName,
+    head_ref: n.headRefName,
+    default_branch: n.repository.defaultBranchRef?.name,
     mergeable: n.mergeable,
     merge_state: n.mergeStateStatus,
     review_decision: n.reviewDecision ?? null,
@@ -365,6 +371,39 @@ export function mergeCheck(row: AuthoredRow, live: any, viewer: string, defaultM
   return { ok: true, method, now };
 }
 
+// Own PRs chained by base->head in one repo, bottom first; a lone PR on the default branch is a stack of one.
+export function stackOf(row: AuthoredRow, all: AuthoredRow[]): AuthoredRow[] {
+  const same = all.filter((r) => r.repository === row.repository && r.head_ref);
+  const chain = [row];
+  for (let cur = row; ; ) {
+    const below = same.find((r) => r.head_ref === cur.base_ref);
+    if (!below || chain.includes(below)) break;
+    chain.unshift((cur = below));
+  }
+  for (let cur = row; ; ) {
+    const above = same.filter((r) => r.base_ref === cur.head_ref);
+    if (above.length !== 1 || chain.includes(above[0]!)) break;
+    chain.push((cur = above[0]!));
+  }
+  return chain;
+}
+
+export type StackPlan = { kind: "single" } | { kind: "stack"; top: AuthoredRow; members: AuthoredRow[] } | { kind: "skip"; reason: string };
+// Stacked PRs land only together: act on the top member once every member is ready, never one by one.
+export function stackPlan(row: AuthoredRow, all: AuthoredRow[]): StackPlan {
+  if (!row.base_ref || !row.default_branch) return { kind: "skip", reason: "base ref unknown (run sync)" };
+  const chain = stackOf(row, all);
+  if (chain.length === 1 && row.base_ref === row.default_branch) return { kind: "single" };
+  const top = chain[chain.length - 1]!;
+  if (all.some((r) => r.repository === row.repository && chain.some((c) => r.base_ref === c.head_ref) && !chain.includes(r)))
+    return { kind: "skip", reason: "stack branches (not linear)" };
+  if (chain[0]!.base_ref !== row.default_branch) return { kind: "skip", reason: `stack root targets ${chain[0]!.base_ref}, not ${row.default_branch}` };
+  if (row !== top) return { kind: "skip", reason: `stacked: merged together with ${top.url}` };
+  const notReady = chain.filter((r) => r.reason !== "mergeable");
+  if (notReady.length) return { kind: "skip", reason: `stack not ready: ${notReady.map((r) => `#${r.pr_number}:${r.reason}`).join(",")}` };
+  return { kind: "stack", top, members: chain };
+}
+
 // Heads whose enable attempt failed (e.g. auto-merge disallowed); retried only after a new push.
 const failedPath = (ledger: string) => join(dirname(ledger), "logs", "authored-auto-merge-failed.json");
 function readFailed(ledger: string): Record<string, string> {
@@ -391,11 +430,23 @@ function merge(path: string, urls: string[], yes: boolean): number {
   const targets = urls.length
     ? urls.map((u) => all.find((r) => r.url === u) ?? ({ url: u } as AuthoredRow))
     : all.filter((r) => r.reason === "mergeable" || (r.reason !== "draft" && (r.changed_files === 0 || (!r.auto_merge && failedHeads[r.url] !== r.head_sha))));
+  // Any stacked target is resolved to its top member so the stack is evaluated once.
+  const queue: AuthoredRow[] = [];
+  for (const r of targets) {
+    const top = r.head_sha ? stackOf(r, all).at(-1)! : r;
+    const pick = top !== r && all.includes(r) && r.base_ref && r.default_branch ? top : r;
+    if (!queue.includes(pick)) queue.push(pick);
+  }
   let failed = 0;
-  for (const row of targets) {
+  for (const row of queue) {
     if (!row.head_sha) {
       console.log(`skip\t${row.url}\tnot in authored list (run sync)`);
       failed++;
+      continue;
+    }
+    const plan = stackPlan(row, all);
+    if (plan.kind === "skip") {
+      console.log(`skip\t${row.url}\t${plan.reason}`);
       continue;
     }
     const [owner, repo] = row.repository.split("/");
@@ -411,6 +462,30 @@ function merge(path: string, urls: string[], yes: boolean): number {
     if (!c.ok) {
       console.log(`skip\t${row.url}\t${c.reason}`);
       failed++;
+      continue;
+    }
+    if (plan.kind === "stack") {
+      if ("close" in c) {
+        console.log(`skip\t${row.url}\tstacked PR with empty diff`);
+        continue;
+      }
+      const nums = plan.members.map((m) => `#${m.pr_number}`).join(",");
+      if (!yes) {
+        console.log(`would-merge-stack\t${row.url}\t${c.method}\t${nums}`);
+        continue;
+      }
+      try {
+        // gh stack merge: atomic all-or-nothing merge of every member up to the top PR.
+        const r = exec(["gh", "stack", "merge", String(row.pr_number), "--yes", c.method], {
+          timeoutMs: 600_000,
+          env: { ...process.env, GH_REPO: row.repository },
+        });
+        if (r.code !== 0) throw new Error(`gh stack merge failed: ${r.stderr.split("\n").filter((l) => !/WRN|ipg_check|agent-guard/.test(l)).join(" ").trim()}`);
+        console.log(`merged-stack\t${row.url}\t${c.method}\t${nums}`);
+      } catch (e) {
+        console.log(`fail\t${row.url}\t${(e as Error).message}`);
+        failed++;
+      }
       continue;
     }
     if ("close" in c) {
