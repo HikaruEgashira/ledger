@@ -501,7 +501,9 @@ function commandDueAuto(args: Args): void {
     let mode: string | null = null;
     // Merges we never approved (or approved before delivery plans existed) have nothing to deliver against.
     if (!isObj(row.approval?.delivery_plan)) {
-      abandon(args.ledger, row.url, "merged without an approved delivery plan");
+      abandon(args.ledger, row.url, "merged without an approved delivery plan", (r) =>
+        POST_MERGE_DISPATCH_STATUSES.has(r.status) && !isObj(r.approval?.delivery_plan),
+      );
       continue;
     }
     try {
@@ -514,7 +516,10 @@ function commandDueAuto(args: Args): void {
       if (givenUp(row)) {
         // An open incident still needs a human; anything else past the window leaves the funnel.
         if (row.status === "recovering") blockerUnchanged(args.ledger, row.url, GAVE_UP);
-        else abandon(args.ledger, row.url, GAVE_UP);
+        else
+          abandon(args.ledger, row.url, GAVE_UP, (r) =>
+            POST_MERGE_DISPATCH_STATUSES.has(r.status) && r.status !== "recovering" && givenUp(r),
+          );
         continue;
       }
       if (
@@ -538,15 +543,18 @@ function commandDueAuto(args: Args): void {
   }
 }
 
-function abandon(ledger: string, url: string, reason: string): void {
-  withLedgerLock(ledger, () => {
+function abandon(ledger: string, url: string, reason: string, stillDue: (row: Obj) => boolean): void {
+  const done = withLedgerLock(ledger, () => {
     const rows = readLedger(ledger);
     const row = findRow(rows, url);
+    // Re-check the latest row: another process may have recorded an incident since the scan.
+    if (!stillDue(row)) return false;
     row.status = "delivery_abandoned";
     (row.delivery ??= {}).abandoned = { reason, at: timestamp() };
     writeLedger(ledger, rows);
+    return true;
   });
-  printJson({ action: "abandoned", url, reason });
+  if (done) printJson({ action: "abandoned", url, reason });
 }
 
 function blockerUnchanged(ledger: string, url: string, message: string): boolean {
