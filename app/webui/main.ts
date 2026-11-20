@@ -85,7 +85,7 @@ const hideTip = () => {
   tip.style.display = "none";
 };
 
-const column = (r: Card) => (r.queue?.state === "running" ? "in_progress" : r.status);
+const column = (r: Card) => (r.status !== "delivery_abandoned" && r.queue?.state === "running" ? "in_progress" : r.status);
 const ago = (iso: string | null) => (iso ? `${Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000))}m` : "");
 function queueTag(r: Card): HTMLElement | null {
   const q = r.queue;
