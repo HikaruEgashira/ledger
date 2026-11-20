@@ -27,11 +27,12 @@ const COLUMNS = [
   ["recovered_monitoring", "--accent"],
   ["completed", "--green"],
   ["closed", "--gray"],
+  ["delivery_abandoned", "--gray"],
   ["mine_review_requested", "--yellow"],
   ["mine_changes_requested", "--red"],
   ["mine_ready_to_merge", "--green"],
 ];
-const collapsed = new Set(["completed", "closed"]);
+const collapsed = new Set(["completed", "closed", "delivery_abandoned"]);
 const kinds = new Set<string>(JSON.parse(localStorage.getItem("kinds") ?? '["review","authored"]'));
 const state: { view: string; unit: Unit; author: string; level: LevelFilter; source: string; q: string; group: string; range: Range } = {
   view: ["#dash", "#log", "#decide"].includes(location.hash) ? location.hash.slice(1) : "board",
@@ -84,7 +85,7 @@ const hideTip = () => {
   tip.style.display = "none";
 };
 
-const column = (r: Card) => (r.queue?.state === "running" ? "in_progress" : r.status);
+const column = (r: Card) => (r.status !== "delivery_abandoned" && r.queue?.state === "running" ? "in_progress" : r.status);
 const ago = (iso: string | null) => (iso ? `${Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000))}m` : "");
 function queueTag(r: Card): HTMLElement | null {
   const q = r.queue;

@@ -86,7 +86,9 @@ export function buckets(unit: Unit, now = new Date()): Bucket[] {
     return { start, end, label: `${start.getMonth() + 1}/${start.getDate()}` };
   });
 }
-export function aggregate(rows: Card[], unit: Unit, now = new Date()): Point[] {
+export function aggregate(all: Card[], unit: Unit, now = new Date()): Point[] {
+  // Abandoned deliveries leave the funnel entirely rather than inflating merged or done.
+  const rows = all.filter((r) => r.status !== "delivery_abandoned");
   const inB = (t: string | null, b: Bucket) => !!t && new Date(t) >= b.start && new Date(t) < b.end;
   return buckets(unit, now).map((b) => ({
     label: b.label,

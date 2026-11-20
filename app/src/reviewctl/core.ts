@@ -58,7 +58,8 @@ export const POST_MERGE_STATUSES = new Set([
   "recovered_monitoring",
   "completed",
 ]);
-export const ALL_STATUSES = new Set([...ACTIVE_STATUSES, "completed", "closed"]);
+// delivery_abandoned: merged but out of our delivery scope (not approved by us, or past the monitoring window).
+export const ALL_STATUSES = new Set([...ACTIVE_STATUSES, "completed", "closed", "delivery_abandoned"]);
 export const HUMAN_REASON_CODES = new Set([
   "required-human-identity",
   "business-risk-acceptance",
@@ -1048,7 +1049,7 @@ export function applyLive(
     if (!("delivery" in row)) row.delivery = {};
     const delivery = row.delivery;
     const receipts = delivery.receipts ?? [];
-    if (row.status !== "completed")
+    if (row.status !== "completed" && row.status !== "delivery_abandoned")
       row.status = !isBlank(receipts)
         ? deriveDeliveryStatus(receipts)
         : POST_MERGE_STATUSES.has(row.status)

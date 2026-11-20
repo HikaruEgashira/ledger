@@ -19,7 +19,7 @@ export const ACTIVE_STATUSES = new Set([
   "recovered_monitoring",
   "error",
 ]);
-export const ALL_STATUSES = new Set([...ACTIVE_STATUSES, "completed", "closed"]);
+export const ALL_STATUSES = new Set([...ACTIVE_STATUSES, "completed", "closed", "delivery_abandoned"]);
 const PR_URL_RE =
   /^https:\/\/github\.com\/(?<owner>[^/]+)\/(?<repo>[^/]+)\/pull\/(?<number>[1-9][0-9]*)\/?$/;
 const REQUIRED = [
