@@ -103,12 +103,32 @@ describe("deliveryctl", () => {
     expect(readLedger(ledger)[0].status).toBe("completed");
   });
 
-  it("gives up monitoring deliveries merged more than 3 days ago", () => {
+  it("abandons deliveries merged more than 3 days ago", () => {
     seed("github-actions", A, "post_release_monitoring", 4 * 24 * 60);
     expect(run("due", "--auto")).toBe(0);
+    const row = readLedger(ledger)[0];
+    expect(row.status).toBe("delivery_abandoned");
+    expect(row.delivery.abandoned.reason).toContain("gave up");
+    out.length = 0;
     expect(run("due")).toBe(0);
     expect(out).toEqual([]);
-    expect(readLedger(ledger)[0].last_error).toContain("gave up");
+  });
+
+  it("keeps an old recovering delivery for a human", () => {
+    seed("github-actions", A, "recovering", 4 * 24 * 60);
+    expect(run("due", "--auto")).toBe(0);
+    const row = readLedger(ledger)[0];
+    expect(row.status).toBe("recovering");
+    expect(row.last_error).toContain("gave up");
+  });
+
+  it("abandons merges we never approved", () => {
+    seed("not_applicable", A);
+    const rows = readLedger(ledger);
+    delete rows[0].approval;
+    writeLedger(ledger, rows);
+    expect(run("due", "--auto")).toBe(0);
+    expect(readLedger(ledger)[0].status).toBe("delivery_abandoned");
   });
 
   it("records a GitHub Actions release and observation, then completes", () => {

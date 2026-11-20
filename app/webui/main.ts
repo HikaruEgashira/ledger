@@ -27,11 +27,12 @@ const COLUMNS = [
   ["recovered_monitoring", "--accent"],
   ["completed", "--green"],
   ["closed", "--gray"],
+  ["delivery_abandoned", "--gray"],
   ["mine_review_requested", "--yellow"],
   ["mine_changes_requested", "--red"],
   ["mine_ready_to_merge", "--green"],
 ];
-const collapsed = new Set(["completed", "closed"]);
+const collapsed = new Set(["completed", "closed", "delivery_abandoned"]);
 const kinds = new Set<string>(JSON.parse(localStorage.getItem("kinds") ?? '["review","authored"]'));
 const state: { view: string; unit: Unit; author: string; level: LevelFilter; source: string; q: string; group: string; range: Range } = {
   view: ["#dash", "#log", "#decide"].includes(location.hash) ? location.hash.slice(1) : "board",

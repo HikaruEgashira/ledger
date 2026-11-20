@@ -39,6 +39,16 @@ async function monitorTick(): Promise<void> {
     console.error(`error: ${(e as Error).message}`);
   }
 }
+// Advances merged rows: completes not_applicable deliveries and records GitHub Actions releases.
+async function deliveryTick(): Promise<void> {
+  try {
+    await Bun.spawn([process.execPath, join(ROOT, "app/src/deliveryctl.ts"), "--ledger", args.ledger, "due", "--auto"], {
+      stdio: ["ignore", "ignore", "inherit"],
+    }).exited;
+  } catch (e) {
+    console.error(`error: delivery: ${(e as Error).message}`);
+  }
+}
 // Enabling GitHub auto-merge on own non-draft PRs is opt-in: set authored_auto_merge_app (a write-capable GHTKN app) in config.toml.
 const AUTO_MERGE_APP: unknown = localConfig().authored_auto_merge_app;
 // Responding to own PRs whose ball is with the author is opt-in: authored_respond = true.
@@ -84,6 +94,7 @@ async function queueLoop() {
 async function loop() {
   for (;;) {
     await monitorTick();
+    await deliveryTick();
     try {
       stampLogs(ROOT);
     } catch (e) {

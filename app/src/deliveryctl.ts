@@ -499,6 +499,11 @@ function commandDueAuto(args: Args): void {
   for (const row of readLedger(args.ledger)) {
     if (!POST_MERGE_DISPATCH_STATUSES.has(row.status)) continue;
     let mode: string | null = null;
+    // Merges we never approved (or approved before delivery plans existed) have nothing to deliver against.
+    if (!isObj(row.approval?.delivery_plan)) {
+      abandon(args.ledger, row.url, "merged without an approved delivery plan");
+      continue;
+    }
     try {
       const p = plan(row);
       mode = p.release.mode;
@@ -507,7 +512,9 @@ function commandDueAuto(args: Args): void {
         continue;
       }
       if (givenUp(row)) {
-        blockerUnchanged(args.ledger, row.url, GAVE_UP);
+        // An open incident still needs a human; anything else past the window leaves the funnel.
+        if (row.status === "recovering") blockerUnchanged(args.ledger, row.url, GAVE_UP);
+        else abandon(args.ledger, row.url, GAVE_UP);
         continue;
       }
       if (
@@ -529,6 +536,17 @@ function commandDueAuto(args: Args): void {
     if (mode === "github-actions" && current.status === "merged_waiting_release") continue;
     printJson(dueLine(current));
   }
+}
+
+function abandon(ledger: string, url: string, reason: string): void {
+  withLedgerLock(ledger, () => {
+    const rows = readLedger(ledger);
+    const row = findRow(rows, url);
+    row.status = "delivery_abandoned";
+    (row.delivery ??= {}).abandoned = { reason, at: timestamp() };
+    writeLedger(ledger, rows);
+  });
+  printJson({ action: "abandoned", url, reason });
 }
 
 function blockerUnchanged(ledger: string, url: string, message: string): boolean {
