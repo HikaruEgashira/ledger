@@ -119,11 +119,6 @@ Write every author-facing review message and change request in clear Japanese.
 Focus only on the concrete action the author needs to take, or—when approving—the
 specific evidence that supports LGTM.
 
-Follow the `communication` skill's voice (load it when available): conclusion
-first, 1–3 sentences, です／ます with light endings (「〜じゃないでしょうか？」
-「大丈夫そうです」「LGTMです！」), full-width （） and ！, at most 2–3 bullets,
-no headings or templated structure, no AI-styled polished prose.
-
 - Start with the target and the requested change, for example:
   `src/example.ts の認可チェックを、操作対象の所有者も検証する形に変更してください。`
 - Add a short reason only when it is necessary to make the requested action

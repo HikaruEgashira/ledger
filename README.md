@@ -302,7 +302,7 @@ skills/review-ledger-prs/
 
 PR と同じ queue で Slack スレッドと Jira チケットを扱います（`config.toml` の `tasks_respond = true`）。
 
-- event inbox: launchd `review-task-sync` が 10 分ごとに `bun app/src/tasks.ts sync` を実行し、`skills/sync-tasks` が brucke MCP で収集した結果を `tasks.jsonl` に upsert（id で重複排除）。
+- event inbox: launchd `review-task-sync` が 10 分ごとに `bun app/src/tasks.ts sync` を実行し、`skills/sync-tasks` が Slack / Jira MCP で収集した結果を `tasks.jsonl` に upsert（id で重複排除）。
 - 2 軸: `review` = 相手→自分の依頼（Jira は自分アサイン）、`respond` = 自分→相手の依頼（Jira は自分作成、自動作成は除外）。
 - worker: ball が `mine` の task を queue が `skills/respond-tasks` で処理し、`tasks.ts check` で ball が離れたことを検証。
 - timers: `theirs` には必ず `follow_up_at` を設定し、期限到来で再実行。
