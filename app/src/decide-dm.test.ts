@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { parseReply, plan, type Open } from "./decide-dm.ts";
 
-const O = (key: string): Open => ({ key, kind: "task", ref: key, url: "u", title: "t", question: "q", options: ["A", "B"] });
+const O = (key: string): Open => ({ key, kind: "task", ref: key, url: "u", title: "t", question: "q", options: ["A", "B"], version: "" });
 
 describe("decide-dm", () => {
   it("parses numbered, exact and free-text replies", () => {
@@ -16,5 +16,19 @@ describe("decide-dm", () => {
     expect(p.post.map((o) => o.key)).toEqual(["a"]);
     expect(p.watch.map((o) => [o.key, o.ts])).toEqual([["b", "1.2"]]);
     expect(p.stale).toEqual(["gone"]);
+  });
+});
+
+
+describe("decide-dm remind and update", () => {
+  it("reminds after a day without an answer and reports source changes", () => {
+    const now = Date.parse("2026-11-25T12:00:00Z");
+    const o = { ...O("a"), version: "v2" };
+    const p = plan([o], { a: { channel: "D1", ts: "1.2", at: "2026-11-24T11:00:00Z", seen: "v1" } }, now);
+    expect(p.remind.map((w) => w.key)).toEqual(["a"]);
+    expect(p.update.map((w) => [w.key, w.from])).toEqual([["a", "v1"]]);
+    const q = plan([o], { a: { channel: "D1", ts: "1.2", at: "2026-11-24T11:00:00Z", reminded: "2026-11-25T11:00:00Z", seen: "v2" } }, now);
+    expect(q.remind).toEqual([]);
+    expect(q.update).toEqual([]);
   });
 });

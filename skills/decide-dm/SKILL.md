@@ -7,7 +7,7 @@ description: Post pending human decisions (own-PR and Slack/Jira task questions)
 
 The DM to the user is for decisions only. Post nothing else there.
 
-The prompt gives the DM user id and a plan: `post` (new questions) and `watch` (questions already posted, with `channel` and `ts`).
+The prompt gives the DM user id and a plan: `post` (new questions), `watch` (questions already posted, with `channel` and `ts`), `update` (posted questions whose source changed) and `remind` (posted questions left unanswered too long).
 
 ## Post
 
@@ -50,6 +50,24 @@ Find replies with one search, not one read per item (Slack rate limits): `slack_
 When unsure whether it is an answer, treat it as a question and ask back which option it means.
 
 No new reply: do nothing.
+
+## Update
+
+For each `update` item (its source changed since the thread last reported it): read what changed in the source (`url` and its linked items: new comments, pushes, CI, status, new Slack replies) and reply in the thread with `slack_send_message` (`thread_ts` = `ts`): `【状況更新】` plus one or two lines of what changed and whether it affects the options, with related links as short labels. Then:
+
+```sh
+bun app/src/decide-dm.ts updated '<key>'
+```
+
+## Remind
+
+For each `remind` item still unanswered after Watch, reply in its thread with `slack_send_message` (`thread_ts` = `ts`, `reply_broadcast: true` so it surfaces in the DM): `【催促】判断待ちです（<経過時間>）` plus the question in one line and any deadline from the source. Then:
+
+```sh
+bun app/src/decide-dm.ts reminded '<key>'
+```
+
+Skip the reminder for an item you just answered or updated in this run.
 
 ## Rules
 

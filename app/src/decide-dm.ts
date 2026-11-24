@@ -19,6 +19,8 @@ export interface Open {
   title: string;
   question: string;
   options: string[];
+  /** Source state fingerprint (task activity / PR updatedAt+reason); a change is a status update for the thread. */
+  version: string;
 }
 export interface Posted {
   channel: string;
@@ -26,6 +28,10 @@ export interface Posted {
   at: string;
   /** ts of the latest user reply already handled (answered or a question replied to). */
   handled?: string;
+  /** version last reported in the thread (set at post time and after each update). */
+  seen?: string;
+  /** last reminder time; reminders repeat every REMIND_MS while unanswered. */
+  reminded?: string;
 }
 export type State = Record<string, Posted>;
 /** Where each ref's latest decision was asked, so the resumed worker can report back in that thread. */
@@ -34,10 +40,14 @@ const ANSWERED = join(ROOT, "logs", "decide-dm-answered.json");
 
 /** New DMs per run; a backlog drains over several runs instead of flooding the DM at once. */
 export const POST_PER_RUN = 5;
+/** An unanswered decision is nudged after this long, then again at the same interval. */
+export const REMIND_MS = 24 * 3_600_000;
 
 const hash = (s: string) => new Bun.CryptoHasher("sha1").update(s).digest("hex").slice(0, 12);
 
 export function openDecisions(): Open[] {
+  const rows = new Map(readAuthored().map((r) => [r.url, r]));
+  const taskRows = new Map(readTasks().map((t) => [t.id, t]));
   const authored = pendingDecisions(readAuthored(), readDispatched(), readDecisions())
     .filter((d) => !d.held)
     .map((d) => ({
@@ -48,6 +58,7 @@ export function openDecisions(): Open[] {
       title: d.title,
       question: d.question,
       options: d.options,
+      version: [rows.get(d.url)?.updated_at ?? "", rows.get(d.url)?.reason ?? ""].join("|"),
     }));
   const tasks = pendingTasks(readTasks())
     .filter((t) => !t.held)
@@ -59,6 +70,7 @@ export function openDecisions(): Open[] {
       title: t.title,
       question: t.question,
       options: t.options,
+      version: taskRows.get(t.id)?.activity ?? "",
     }));
   return [...authored, ...tasks];
 }
@@ -87,11 +99,19 @@ function writeState(state: State, path = STATE): void {
 }
 
 /** What the DM agent must do this run: post new questions, read replies on posted ones; answered/withdrawn keys drop out. */
-export function plan(open: Open[], state: State): { post: Open[]; watch: (Open & Posted)[]; stale: string[] } {
+type Watched = Open & Posted;
+export function plan(
+  open: Open[],
+  state: State,
+  now = Date.now(),
+): { post: Open[]; watch: Watched[]; remind: Watched[]; update: (Watched & { from: string })[]; stale: string[] } {
   const keys = new Set(open.map((o) => o.key));
+  const watch = open.filter((o) => state[o.key]).map((o) => ({ ...o, ...state[o.key]! }));
   return {
     post: open.filter((o) => !state[o.key]).slice(0, POST_PER_RUN),
-    watch: open.filter((o) => state[o.key]).map((o) => ({ ...o, ...state[o.key]! })),
+    watch,
+    remind: watch.filter((w) => now - Date.parse(w.reminded ?? w.at) >= REMIND_MS),
+    update: watch.filter((w) => w.seen !== undefined && w.seen !== w.version).map((w) => ({ ...w, from: w.seen! })),
     stale: Object.keys(state).filter((k) => !keys.has(k)),
   };
 }
@@ -130,7 +150,7 @@ function sync(): number {
   for (const k of p.stale) delete state[k];
   writeState(state);
   if (!p.post.length && !p.watch.length) return 0;
-  const prompt = `Read ${SKILL} and follow it exactly once, then exit. DM user: ${user}. Plan: ${JSON.stringify({ post: p.post, watch: p.watch })}`;
+  const prompt = `Read ${SKILL} and follow it exactly once, then exit. DM user: ${user}. Plan: ${JSON.stringify({ post: p.post, watch: p.watch, remind: p.remind, update: p.update })}`;
   // Sonnet: posting, reading replies and answering questions about one decision.
   const r = Bun.spawnSync(oneShot(workerCommand(), prompt, { model: "sonnet", effort: "medium" }), { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"] });
   return r.exitCode ?? 1;
@@ -145,7 +165,8 @@ if (import.meta.main) {
   }
   if (cmd === "posted" && key && rest.length === 2) {
     const state = readState();
-    state[key] = { channel: rest[0]!, ts: rest[1]!, at: new Date().toISOString() };
+    const version = openDecisions().find((o) => o.key === key)?.version ?? "";
+    state[key] = { channel: rest[0]!, ts: rest[1]!, at: new Date().toISOString(), seen: version };
     writeState(state);
     console.log(`posted\t${key}`);
     process.exit(0);
@@ -158,6 +179,15 @@ if (import.meta.main) {
     console.log(`handled\t${key}`);
     process.exit(0);
   }
+  if ((cmd === "reminded" || cmd === "updated") && key) {
+    const state = readState();
+    if (!state[key]) throw new Error(`not posted: ${key}`);
+    if (cmd === "reminded") state[key]!.reminded = new Date().toISOString();
+    else state[key]!.seen = openDecisions().find((o) => o.key === key)?.version ?? state[key]!.seen;
+    writeState(state);
+    console.log(`${cmd}\t${key}`);
+    process.exit(0);
+  }
   if (cmd === "thread" && key) {
     // key here is the ref (PR URL or task id); prints the DM thread of its answered decision.
     const t = readAnswered()[key];
@@ -168,6 +198,6 @@ if (import.meta.main) {
     console.log(`decided\t${key}\t${answer(key, rest.join(" "))}`);
     process.exit(0);
   }
-  console.error("usage: decide-dm.ts {sync|list|posted KEY CHANNEL TS|answer KEY REPLY|handled KEY REPLY_TS|thread REF}");
+  console.error("usage: decide-dm.ts {sync|list|posted KEY CHANNEL TS|answer KEY REPLY|handled KEY REPLY_TS|reminded KEY|updated KEY|thread REF}");
   process.exit(2);
 }
