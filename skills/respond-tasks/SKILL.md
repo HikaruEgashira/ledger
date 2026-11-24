@@ -44,6 +44,8 @@ A `triage` task is a Slack thread with new activity that nobody has judged yet. 
 
 Slack writing style: follow the `communication` skill (the user's voice). Reply in thread, never in channel root. No apology/agreement openers.
 
+Private conversations are draft-only: when the thread is in a private channel, DM or group DM, never call `slack_send_message`; write the reply with `slack_send_message_draft` (same thread) then hand it over with `tasks.ts dispatch <ID> --reason "下書き済み: 確認して送信してください" --option "送信した"`. Public channels may be posted directly.
+
 ## Defer to the human
 
 Dispatch instead of acting when the reply needs a decision only the user can make (commitment, priority, people, money, policy), an irreversible action, data whose security level forbids the destination, or you are unsure what is asked:
