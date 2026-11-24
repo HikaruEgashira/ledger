@@ -475,8 +475,15 @@ events.onmessage = () => {
 };
 setInterval(refreshLogs, 30_000);
 
+const syncButton = document.getElementById("sync") as HTMLButtonElement;
+syncButton.onclick = () => {
+  sync = { running: true, next_at: null };
+  tickSync();
+  void fetch("/api/sync", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+};
 function tickSync() {
-  const node = document.getElementById("sync")!;
+  const node = syncButton;
+  node.disabled = sync.running;
   if (sync.running) node.textContent = "⟳ syncing";
   else if (sync.next_at === null) node.textContent = "";
   else node.textContent = `⟳ ${Math.max(0, Math.ceil((sync.next_at - Date.now()) / 1000))}s`;

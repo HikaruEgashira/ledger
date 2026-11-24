@@ -1098,7 +1098,7 @@ export interface Outage {
   last_probe_ms: number;
 }
 
-export const OUTAGE_PROBE_MS = 10 * 60 * 1000;
+export const OUTAGE_PROBE_MS = 60 * 1000;
 
 export const outageProbeDue = (outage: Outage | null, nowMs: number): boolean =>
   !outage || nowMs - outage.last_probe_ms >= OUTAGE_PROBE_MS;

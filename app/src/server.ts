@@ -61,13 +61,18 @@ async function authoredTick(): Promise<void> {
   }
 }
 let syncState: { running: boolean; next_at: number | null } = { running: false, next_at: null };
+let wakeSync: (() => void) | null = null;
 async function authoredLoop() {
   for (;;) {
     syncState = { running: true, next_at: null };
     await authoredTick();
     const ms = Math.max(60, Number(args.interval)) * 1000;
     syncState = { running: false, next_at: Date.now() + ms };
-    await Bun.sleep(ms);
+    await new Promise<void>((done) => {
+      const t = setTimeout(done, ms);
+      wakeSync = () => (clearTimeout(t), done());
+    });
+    wakeSync = null;
   }
 }
 // After a human answer, watch for more; QUIET_MS after the latest one, auto-answer similar pending questions in a child.
@@ -165,11 +170,18 @@ function rows(): Response {
   return json([...review, ...authored]);
 }
 
-// Answers mutate state, so only same-origin JSON posts from this dashboard are accepted.
-async function answer(req: Request): Promise<Response> {
+// Mutations accept only same-origin JSON posts from this dashboard.
+function sameOriginPost(req: Request): boolean {
   const origin = req.headers.get("origin");
-  if (req.method !== "POST" || !req.headers.get("content-type")?.startsWith("application/json") || !origin || new URL(origin).host !== new URL(req.url).host)
-    return new Response("forbidden", { status: 403 });
+  return req.method === "POST" && !!req.headers.get("content-type")?.startsWith("application/json") && !!origin && new URL(origin).host === new URL(req.url).host;
+}
+function forceSync(req: Request): Response {
+  if (!sameOriginPost(req)) return new Response("forbidden", { status: 403 });
+  wakeSync?.();
+  return json(syncState);
+}
+async function answer(req: Request): Promise<Response> {
+  if (!sameOriginPost(req)) return new Response("forbidden", { status: 403 });
   try {
     const { url, head, choice, custom } = (await req.json()) as { url: string; head: string; choice: string; custom?: boolean };
     if (!custom && choice === CLOSE) {
@@ -213,6 +225,7 @@ Bun.serve({
     "/api/events": events,
     "/api/decisions": () => { try { return json(pendingDecisions(readAuthored(), readDispatched(), readDecisions())); } catch (e) { return fail(e); } },
     "/api/decide": answer,
+    "/api/sync": forceSync,
     "/api/tasks": () => { try { const t = readTasks(); return json({ tasks: t, pending: pendingTasks(t) }); } catch (e) { return fail(e); } },
     "/api/tasks/decide": answerTask,
   },

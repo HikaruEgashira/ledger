@@ -63,6 +63,15 @@
         font: 12px ui-monospace, monospace;
         color: var(--muted);
         font-variant-numeric: tabular-nums;
+        background: none;
+        border: 0;
+        cursor: pointer;
+      }
+      #sync:hover:not(:disabled) {
+        color: var(--text);
+      }
+      #sync:disabled {
+        cursor: default;
       }
       .seg {
         display: flex;
@@ -497,7 +506,7 @@
       <select id="author">
         <option value="">author</option>
       </select>
-      <span id="sync" title="next own-PR sync"></span>
+      <button id="sync" title="next own-PR sync (click to sync now)"></button>
     </nav>
     <main id="board"></main>
     <section id="dash"></section>

@@ -9,7 +9,7 @@ This run only fills the inbox. Never post to Slack, never edit Jira, never act o
 
 ## Who is "me"
 
-Resolve the authenticated user once per run: Slack user via the Slack MCP user profile, Jira account via `atlassianUserInfo`.
+Resolve the authenticated user once per run: Slack user via the Slack MCP user profile, Jira account via `atlassianUserInfo`. Call `getAccessibleAtlassianResources` first and pass the returned `cloudId` (the configured Jira site) to every Jira call; a guessed cloud id is rejected as "not explicitly granted".
 
 ## Collect (last 14 days of activity)
 
@@ -20,7 +20,7 @@ Two axes, mirroring GitHub review requests vs. own PRs:
 
 ### Slack: pick up with `with:me`, then judge from context
 
-1. Candidates: `slack_search_public_and_private` with `with:me after:<14 days ago>` (paginate, `include_bots: true`), grouped by thread root. Do not judge from search hits alone.
+1. Candidates: `slack_search_public_and_private` with `with:me after:<14 days ago>`, `sort: timestamp`, `include_bots: true`, default `channel_types` (DMs and group DMs included). One call returns at most 20: follow `cursor` until no next page; never stop at page 1. Group by thread root. Do not judge from search hits alone.
 2. For each thread, investigate before classifying: read the whole thread (`slack_read_thread`), and when the root is a bot or a reply references something else, read the surrounding channel messages and the linked Jira issue / PR / other thread.
 3. Decide who asked whom from the substance, not from who posted or who was mentioned:
    - Intake bots (ticket bots such as sashikomi-kun, workflow forms) post "Hello @me, the issue was created" when **I** filed the request: that is `respond` (I asked them), even though the bot mentions me.
