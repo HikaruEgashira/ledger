@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { advance, idFromUrl, LOOKBACK_MS, merge, readWatermark, pendingTasks, settled, taskTargets, validate, type Incoming, type TaskRow } from "./tasks.ts";
+import { advance, idFromUrl, taskCard, LOOKBACK_MS, merge, readWatermark, pendingTasks, settled, taskTargets, validate, type Incoming, type TaskRow } from "./tasks.ts";
 
 const I = (o: Partial<Incoming> = {}): Incoming => ({
   id: "jira:PROJ-1",
@@ -60,5 +60,15 @@ describe("watermark", () => {
     expect(advance(ledger, "2026-11-20T00:00:00Z", t)).toBe("2026-11-20T00:00:00Z");
     expect(advance(ledger, "2026-11-19T00:00:00Z", t)).toBe("2026-11-20T00:00:00Z");
     expect(() => advance(ledger, "2026-12-01T00:00:00Z", t)).toThrow();
+  });
+});
+
+describe("triage and cards", () => {
+  it("queues triage threads and maps them to board columns", () => {
+    const row = merge([], [I({ id: "slack:C01ABC:1794971997.292459", source: "slack", url: "https://x.slack.com/archives/C01ABC/p1794971997292459", ball: "triage" })], "2026-11-24T00:00:00Z").rows[0]!;
+    expect(taskTargets([row]).length).toBe(1);
+    expect(settled(row)).toBe(false);
+    expect(taskCard(row)).toMatchObject({ kind: "review", status: "queued", repository: "slack/C01ABC", pr_number: 0 });
+    expect(taskCard({ ...row, id: "jira:OPS2-8420", axis: "respond", ball: "theirs" })).toMatchObject({ kind: "authored", status: "mine_review_requested", repository: "jira/OPS2", pr_number: 8420 });
   });
 });

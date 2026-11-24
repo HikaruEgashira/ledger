@@ -13,9 +13,9 @@ export const RESPOND_SKILL = "skills/respond-tasks/SKILL.md";
 export type Source = "slack" | "jira";
 /** review: someone asked me (I owe the answer). respond: I asked someone (I owe the follow-up). */
 export type Axis = "review" | "respond";
-/** Who holds the ball: mine = worker acts, theirs = wait (until follow_up_at), human = deferred to me, done = closed. */
-export type Ball = "mine" | "theirs" | "human" | "done";
-const BALLS: Ball[] = ["mine", "theirs", "human", "done"];
+/** Who holds the ball: triage = new thread activity a worker must classify first, mine = worker acts, theirs = wait (until follow_up_at), human = deferred to me, done = closed. */
+export type Ball = "triage" | "mine" | "theirs" | "human" | "done";
+const BALLS: Ball[] = ["triage", "mine", "theirs", "human", "done"];
 export const HOLD = "Hold";
 export const RETRY = "Retry";
 
@@ -115,7 +115,7 @@ export function taskTargets(rows: TaskRow[], now = Date.now()): TaskTarget[] {
   for (const r of rows) {
     const due = r.ball === "theirs" && r.follow_up_at && Date.parse(r.follow_up_at) <= now;
     const answered = r.ball === "human" && r.answer && r.answer.choice !== HOLD;
-    if (r.ball !== "mine" && !due && !answered) continue;
+    if (r.ball !== "mine" && r.ball !== "triage" && !due && !answered) continue;
     out.push({
       url: r.id,
       kind: "task",
@@ -177,7 +177,7 @@ export function decideTask(path: string, id: string, choice: string, custom = fa
 }
 
 /** Ball left the worker: anything but mine, or an answered question still unconsumed counts as not done. */
-export const settled = (r: TaskRow | undefined) => !r || (r.ball !== "mine" && !(r.ball === "human" && r.answer && r.answer.choice !== HOLD));
+export const settled = (r: TaskRow | undefined) => !r || (r.ball !== "mine" && r.ball !== "triage" && !(r.ball === "human" && r.answer && r.answer.choice !== HOLD));
 
 // Slack coverage watermark: each run scans only from here, so a run never has to cover 14 days of with:me at once.
 export const LOOKBACK_MS = 14 * 86_400_000;
@@ -221,13 +221,15 @@ if (import.meta.main) {
       choice: { type: "string" },
       custom: { type: "boolean", default: false },
       "slack-covered-until": { type: "string" },
+      axis: { type: "string" },
+      title: { type: "string" },
     },
   });
   const path = v.ledger!;
   const [cmd = "list", id] = p;
   const need = ["record", "dispatch", "check", "decide", "show"];
   if (!["sync", "upsert", "list", ...need].includes(cmd) || (need.includes(cmd) && !id)) {
-    console.error("usage: tasks.ts {sync|upsert [--slack-covered-until ISO] <JSONL|list|show ID|record ID --ball B [--follow-up ISO] [--note T]|dispatch ID --reason T [--option T]...|decide ID --choice T|check ID}");
+    console.error("usage: tasks.ts {sync|upsert [--slack-covered-until ISO] <JSONL|list|show ID|record ID --ball B [--axis A] [--title T] [--follow-up ISO] [--note T]|dispatch ID --reason T [--option T]...|decide ID --choice T|check ID}");
     process.exit(2);
   }
   if (cmd === "sync") process.exit(sync(path));
@@ -252,11 +254,13 @@ if (import.meta.main) {
   }
   if (cmd === "record") {
     const ball = v.ball as Ball;
-    if (!BALLS.includes(ball) || ball === "human") throw new Error("--ball must be mine|theirs|done (use dispatch for human)");
+    if (!BALLS.includes(ball) || ball === "human" || ball === "triage") throw new Error("--ball must be mine|theirs|done (use dispatch for human)");
+    const axis = v.axis as Axis | undefined;
+    if (axis && !["review", "respond"].includes(axis)) throw new Error("--axis must be review|respond");
     const fu = v["follow-up"];
     if (fu && Number.isNaN(Date.parse(fu))) throw new Error("--follow-up must be ISO 8601");
     if (ball === "theirs" && !fu) throw new Error("--follow-up is required when the ball is theirs");
-    update(path, id!, (r) => ({ ...r, ball, follow_up_at: fu, note: v.note ?? r.note, question: undefined, options: undefined, answer: undefined }));
+    update(path, id!, (r) => ({ ...r, ...(axis ? { axis } : {}), ...(v.title ? { title: v.title.slice(0, 200) } : {}), ball, follow_up_at: fu, note: v.note ?? r.note, question: undefined, options: undefined, answer: undefined }));
     console.log(`recorded\t${id}\t${ball}`);
     process.exit(0);
   }
@@ -275,4 +279,36 @@ if (import.meta.main) {
   const ok = settled(r);
   console.log(`${ok ? "done" : "still-mine"}\t${id}\t${r?.ball ?? "missing"}`);
   process.exit(ok ? 0 : 1);
+}
+
+/** Board card: review axis reads like a review request, respond axis like an own PR (same columns, no new panel). */
+export function taskCard(r: TaskRow) {
+  const review = r.axis === "review";
+  const status =
+    r.ball === "done" ? "completed"
+    : r.ball === "human" ? "human_required"
+    : r.ball === "triage" ? "queued"
+    : review ? (r.ball === "mine" ? "queued" : "reviewing")
+    : r.ball === "mine" ? "mine_changes_requested" : "mine_review_requested";
+  const [, scope = "", key = ""] = r.id.split(":");
+  const jira = /^([A-Z][A-Z0-9]+)-(\d+)$/.exec(scope);
+  return {
+    kind: review ? ("review" as const) : ("authored" as const),
+    url: r.url,
+    repository: jira ? `jira/${jira[1]}` : `slack/${scope}`,
+    pr_number: jira ? Number(jira[2]) : 0,
+    status,
+    priority: null,
+    title: r.title,
+    author: null,
+    action: [r.counterpart, r.follow_up_at && r.ball === "theirs" ? `follow-up ${r.follow_up_at.slice(5, 16)}` : null].filter(Boolean).join(" · ") || null,
+    last_error: null,
+    updated_at: r.synced_at,
+    added_at: r.intake_at,
+    approved_at: null,
+    changes_requested_at: null,
+    merged_at: null,
+    completed_at: r.ball === "done" ? r.synced_at : null,
+    key,
+  };
 }

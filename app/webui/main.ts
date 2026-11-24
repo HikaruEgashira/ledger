@@ -130,7 +130,7 @@ function renderBoard(rows: Card[]) {
           card.target = "_blank";
           card.rel = "noopener noreferrer";
           const meta = el("div", "meta");
-          meta.append(el("span", "ref", `${r.repository.split("/")[1]}#${r.pr_number}`));
+          meta.append(el("span", "ref", r.pr_number ? `${r.repository.split("/")[1]}#${r.pr_number}` : r.repository));
           if (r.author) meta.append(avatar(r.author));
           card.append(meta, el("div", "title", r.title ?? ""));
           const tags = el("div", "tags");

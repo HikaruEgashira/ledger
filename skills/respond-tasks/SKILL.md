@@ -27,6 +27,16 @@ bun app/src/tasks.ts check <ID>   # exit 0 = done
 
 Read first: the full Slack thread / Jira issue and comments, `logs/decision-memory.md` (generalized past human answers), and the task's `note` and `answer` (a human answer to your earlier question is the instruction for this run).
 
+## Triage (ball `triage`)
+
+A `triage` task is a Slack thread with new activity that nobody has judged yet. Before acting:
+
+1. Read the whole thread and follow what it points to (surrounding messages, linked issues, PRs, threads) until the request is clear.
+2. Axis = who originated the request, judged from the substance. Who posted, who is mentioned, or which tool relayed it does not decide it; a message posted by a bot or tool on someone's behalf is that person's.
+3. One request is one task: if the thread is the conversation of a request tracked elsewhere (a Jira issue, a PR), record this thread `done` with the other location in `--note`.
+4. No open request (announcement, FYI, resolved): `record <ID> --ball done --note "<why>"`.
+5. Otherwise set the axis and a one-line title, then act below in the same run: `record <ID> --ball mine --axis <review|respond> --title "<request>"`.
+
 ## Act, by axis
 
 - `review` (someone asked me): do what is asked when it is within the user's role and reversible (answer a question from code/docs/Jira/Confluence, check a PR or config, create or update a Jira ticket). Reply in the thread / comment on the issue with the result.

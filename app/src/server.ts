@@ -8,7 +8,7 @@ import { localConfig } from "./lib/org.ts";
 import type { Card } from "../webui/dashboard.ts";
 import { readLogs, stampLogs } from "./logs.ts";
 import { CONCURRENCY, readQueue, tick } from "./queue.ts";
-import { decideTask, pendingTasks, readTasks, TASK_LEDGER, taskTargets } from "./tasks.ts";
+import { decideTask, pendingTasks, readTasks, TASK_LEDGER, taskCard, taskTargets } from "./tasks.ts";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const DIST = resolve(import.meta.dir, "../dist");
@@ -167,7 +167,11 @@ function rows(): Response {
     completed_at: null,
     queue: tag(r.url),
   }));
-  return json([...review, ...authored]);
+  const tasks: Card[] = readTasks().map((t) => {
+    const { key: _key, ...c } = taskCard(t);
+    return { ...c, queue: tag(t.id) };
+  });
+  return json([...review, ...authored, ...tasks]);
 }
 
 // Mutations accept only same-origin JSON posts from this dashboard.
