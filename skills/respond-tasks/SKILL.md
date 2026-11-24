@@ -11,6 +11,18 @@ You act as the user on exactly one task id from the prompt. Do not touch other t
 bun app/src/tasks.ts show <ID>
 ```
 
+## One request, one group
+
+A request often lives in several places at once: a Slack thread, a Jira issue, a GitHub PR. `show` lists the task's `group`: you were started on the primary, and its members are the same request elsewhere. Read every member and work the group as one: one reply where the conversation is, one decision, one outcome.
+
+Record every Slack thread, Jira issue and PR this request is tied to (found in the thread, the issue description and comments, PR bodies), on every `record` / `dispatch` with `--link <url>` (repeatable), or right away:
+
+```sh
+bun app/src/tasks.ts link <ID> <url> [<url>...]   # prints the resulting primary and members
+```
+
+Linking can make another task the primary (a Jira issue leads a Slack thread). If the printed primary is not your ID, finish by `record <ID> --ball done --note "grouped into <primary>"`; the primary's worker takes over.
+
 ## Done condition
 
 The job is done only when the ball left you. Record it before exiting:
@@ -33,7 +45,7 @@ A `triage` task is a Slack thread with new activity that nobody has judged yet. 
 
 1. Read the whole thread and follow what it points to (surrounding messages, linked issues, PRs, threads) until the request is clear.
 2. Axis = who originated the request, judged from the substance. Who posted, who is mentioned, or which tool relayed it does not decide it; a message posted by a bot or tool on someone's behalf is that person's.
-3. One request is one task: if the thread is the conversation of a request tracked elsewhere (a Jira issue, a PR), record this thread `done` with the other location in `--note`.
+3. One request is one task: link the places it lives (see "One request, one group") instead of closing them separately.
 4. No open request (announcement, FYI, resolved): `record <ID> --ball done --note "<why>"`.
 5. Otherwise set the axis and a one-line title, then act below in the same run: `record <ID> --ball mine --axis <review|respond> --title "<request>"`.
 
