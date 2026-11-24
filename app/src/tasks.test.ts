@@ -134,3 +134,16 @@ describe("monotonic activity", () => {
     expect(merge([base], [I({ activity: "2026-11-24T09:00:00Z", ball: "triage" })], "2026-11-24T09:00:00Z").rows[0]!.ball).toBe("triage");
   });
 });
+
+describe("recent cursor", () => {
+  it("keeps its own cursor bounded to a day and leaves the backfill cursor alone", () => {
+    const { mkdtempSync } = require("node:fs");
+    const ledger = `${mkdtempSync(`${process.env.TMPDIR ?? "/tmp"}/tasks-`)}/tasks.jsonl`;
+    const t = Date.parse("2026-11-24T12:00:00Z");
+    expect(readWatermark(ledger, t, "slack_recent_covered_until")).toBe("2026-11-23T12:00:00.000Z");
+    advance(ledger, "2026-11-20T00:00:00Z", t);
+    advance(ledger, "2026-11-24T06:00:00Z", t, "slack_recent_covered_until");
+    expect(readWatermark(ledger, t)).toBe("2026-11-20T00:00:00Z");
+    expect(readWatermark(ledger, t, "slack_recent_covered_until")).toBe("2026-11-24T06:00:00Z");
+  });
+});

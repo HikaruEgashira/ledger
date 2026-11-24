@@ -253,20 +253,24 @@ function markKeywords(ledger: string, searched: string[], now = new Date().toISO
 // Slack coverage watermark: each run scans only from here, so a run never has to cover 14 days of with:me at once.
 export const LOOKBACK_MS = 14 * 86_400_000;
 const watermarkPath = (ledger: string) => join(dirname(ledger), "logs", "task-sync-watermark.json");
-export function readWatermark(ledger: string, now = Date.now()): string {
+/** Recent pass: the last day is read oldest-first from its own cursor, so a run that stops early never skips the middle. */
+export const RECENT_MS = 86_400_000;
+type Cursor = "slack_covered_until" | "slack_recent_covered_until";
+export function readWatermark(ledger: string, now = Date.now(), key: Cursor = "slack_covered_until"): string {
+  const lookback = key === "slack_recent_covered_until" ? RECENT_MS : LOOKBACK_MS;
   try {
-    const at = store.readJson<{ slack_covered_until?: string }>(watermarkPath(ledger), {}).slack_covered_until ?? "";
-    if (Date.parse(at) > now - LOOKBACK_MS) return at;
+    const at = store.readJson<Record<string, string>>(watermarkPath(ledger), {})[key] ?? "";
+    if (Date.parse(at) > now - lookback) return at;
   } catch {}
-  return new Date(now - LOOKBACK_MS).toISOString();
+  return new Date(now - lookback).toISOString();
 }
 /** Advance only forward: a run reports the newest time it fully covered, never past now. */
-export function advance(ledger: string, until: string, now = Date.now()): string {
+export function advance(ledger: string, until: string, now = Date.now(), key: Cursor = "slack_covered_until"): string {
   const t = Date.parse(until);
-  if (Number.isNaN(t) || t > now + 60_000) throw new Error(`invalid --slack-covered-until: ${until}`);
-  const cur = readWatermark(ledger, now);
+  if (Number.isNaN(t) || t > now + 60_000) throw new Error(`invalid ${key}: ${until}`);
+  const cur = readWatermark(ledger, now, key);
   if (t <= Date.parse(cur)) return cur;
-  store.writeJson(watermarkPath(ledger), { slack_covered_until: until });
+  store.writeJson(watermarkPath(ledger), { ...store.readJson<Record<string, string>>(watermarkPath(ledger), {}), [key]: until });
   return until;
 }
 
@@ -274,7 +278,7 @@ function sync(path: string): number {
   // Slack/Jira are reachable only through the worker's MCP connectors; the skill pipes results into `upsert`.
   const since = readWatermark(path);
   // Recent activity first every run, so today's requests never wait behind the backfill.
-  const recent = new Date(Date.now() - 86_400_000).toISOString();
+  const recent = readWatermark(path, Date.now(), "slack_recent_covered_until");
   // Extra Slack search terms (own names, watched topics) live in config, not in the published skill.
   const kw: string[] = (localConfig().task_slack_keywords ?? []).filter((k: unknown) => typeof k === "string" && k.trim());
   const plan = keywordPlan(kw, store.readJson<Record<string, string>>(keywordStatePath(path), {}));
@@ -311,6 +315,7 @@ if (import.meta.main) {
       choice: { type: "string" },
       custom: { type: "boolean", default: false },
       "slack-covered-until": { type: "string" },
+      "slack-recent-covered-until": { type: "string" },
       "keywords-searched": { type: "string" },
       axis: { type: "string" },
       title: { type: "string" },
@@ -321,7 +326,7 @@ if (import.meta.main) {
   const [cmd = "list", id] = p;
   const need = ["record", "dispatch", "check", "decide", "show", "link"];
   if (!["sync", "upsert", "list", ...need].includes(cmd) || (need.includes(cmd) && !id)) {
-    console.error("usage: tasks.ts {sync|upsert [--slack-covered-until ISO] [--keywords-searched JSON] <JSONL|list|show ID|record ID --ball B [--axis A] [--title T] [--link URL]...|link ID URL... [--follow-up ISO] [--note T]|dispatch ID --reason T [--option T]...|decide ID --choice T|check ID}");
+    console.error("usage: tasks.ts {sync|upsert [--slack-covered-until ISO] [--slack-recent-covered-until ISO] [--keywords-searched JSON] <JSONL|list|show ID|record ID --ball B [--axis A] [--title T] [--link URL]...|link ID URL... [--follow-up ISO] [--note T]|dispatch ID --reason T [--option T]...|decide ID --choice T|check ID}");
     process.exit(2);
   }
   if (cmd === "sync") process.exit(sync(path));
@@ -337,6 +342,7 @@ if (import.meta.main) {
       if (!Array.isArray(ks) || ks.some((k) => typeof k !== "string")) throw new Error("--keywords-searched must be a JSON array of strings");
       markKeywords(path, ks);
     }
+    if (v["slack-recent-covered-until"]) console.log(`slack-recent-covered-until\t${advance(path, v["slack-recent-covered-until"], Date.now(), "slack_recent_covered_until")}`);
     if (v["slack-covered-until"]) console.log(`slack-covered-until\t${advance(path, v["slack-covered-until"])}`);
     process.exit(0);
   }
