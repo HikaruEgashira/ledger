@@ -11,7 +11,7 @@ The prompt gives the DM user id and a plan: `post` (new questions) and `watch` (
 
 ## Post
 
-For each `post` item, send one message to the DM user with `slack_send_message`:
+For each `post` item, collect every link related to it first: the item `url`, and the PRs, Jira issues, Slack threads, Confluence/Docs pages and other URLs that the item, its task record (`bun app/src/tasks.ts show <ref>` for tasks: `summary`, `note`) and its source (PR description, Jira description and comments, Slack thread) point to. Then send one message to the DM user with `slack_send_message`:
 
 ```
 【判断】<title>
@@ -19,9 +19,11 @@ For each `post` item, send one message to the DM user with `slack_send_message`:
 1. <option 1>
 2. <option 2>
 ...
-<url>
+関連: <url|PSIRT-21302> / <url|aws-infra#69513> / <url|#ask-security スレッド> / <url|Confluence: ページ名>
 返信: 番号 か 自由記述（このスレッドに）
 ```
+
+Links are always short labels, never bare full URLs (Slack link syntax `<url|label>`): Jira key, `repo#number` for PRs, `#channel スレッド` for Slack threads, `Confluence: <title>` / `Docs: <title>` for pages. Put the item's own link first; no duplicates.
 
 Then record it with the returned channel and ts:
 

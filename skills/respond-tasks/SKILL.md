@@ -64,7 +64,7 @@ Check `logs/decision-memory.md` first; if a rule decides it, act and say so in t
 
 ## Report back to the decide thread
 
-When this run carried out a human decision (an `answer` on the task / a decision for this PR), check where it was asked and reply there with one line in Japanese: what you did, with links (comment, PR, message) or why nothing was needed.
+When this run carried out a human decision (an `answer` on the task / a decision for this PR), check where it was asked and reply there with one line in Japanese: what you did or why nothing was needed, followed by every related link (the comments, PRs, Jira issues, Slack messages/threads, pages you touched or relied on) as short labels in Slack link syntax `<url|label>` (Jira key, `repo#number`, `#channel スレッド`, `Confluence: <title>`), never bare full URLs.
 
 ```sh
 bun app/src/decide-dm.ts thread <task id or PR URL>   # prints: channel<TAB>ts<TAB>choice
