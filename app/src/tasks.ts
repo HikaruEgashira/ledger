@@ -5,6 +5,8 @@ import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { BATCH, oneShot, workerCommand } from "./lib/worker.ts";
 
+import { localConfig } from "./lib/org.ts";
+import { linkKey } from "../webui/logfilter.ts";
 const ROOT = resolve(import.meta.dir, "../..");
 export const TASK_LEDGER = join(ROOT, "tasks.jsonl");
 export const SYNC_SKILL = "skills/sync-tasks/SKILL.md";
@@ -205,7 +207,10 @@ function sync(path: string): number {
   const since = readWatermark(path);
   // Recent activity first every run, so today's requests never wait behind the backfill.
   const recent = new Date(Date.now() - 86_400_000).toISOString();
-  const prompt = `Read ${SYNC_SKILL} and follow it exactly once, then exit. Slack recent window starts at ${recent}; backfill window starts at ${since}.`;
+  // Extra Slack search terms (own names, watched topics) live in config, not in the published skill.
+  const kw: string[] = (localConfig().task_slack_keywords ?? []).filter((k: unknown) => typeof k === "string" && k.trim());
+  const keywords = kw.length ? ` Slack keywords: ${JSON.stringify(kw)}.` : "";
+  const prompt = `Read ${SYNC_SKILL} and follow it exactly once, then exit. Slack recent window starts at ${recent}; backfill window starts at ${since}.${keywords}`;
   const r = Bun.spawnSync(oneShot(workerCommand(), prompt, BATCH), { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, TASK_LEDGER: path } });
   return r.exitCode ?? 1;
 }

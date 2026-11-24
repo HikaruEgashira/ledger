@@ -27,6 +27,7 @@ Slack is managed per thread, the same way PRs and Jira issues are: this run only
 1. Two passes with `slack_search_public_and_private` (`with:me`, `include_bots: true`, `response_format: concise`, default `channel_types`), following `cursor` to the last page:
    - recent: `after:<recent window start date>`, `sort: timestamp`, newest first. Always run this pass in full first.
    - backfill: `after:<backfill window start date>`, `sort: timestamp`, `sort_dir: asc`, as far as the run allows.
+   - keywords: when the prompt lists Slack keywords, also run the recent pass once per keyword (the keyword as the query, quoted as given, without `with:me`). A keyword hit is a candidate like a `with:me` hit; triage decides whether it concerns me.
 2. Skip my DM with myself (notes and my own automation reports). Keep bot/app DMs: alerts and notices there can need my action.
 3. Group hits by thread root. For each thread emit `ball: "triage"`, `axis: "review"` (placeholder; the worker sets the real axis), `title` from the hit text, `url` = thread root permalink, `activity` = ISO time of the newest hit in that thread.
 4. Do not read threads or classify here. Pass `--slack-covered-until <ISO of the newest backfill hit you emitted>` to `upsert` (the recent pass does not move it).
