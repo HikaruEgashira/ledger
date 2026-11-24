@@ -8,6 +8,9 @@ notify_slack_user = "U00000000"
 # Optional: queue your own PRs whose ball is with you (CI failed, conflicts, reviewer responded, no reviewer)
 # and answer them with skills/respond-authored-prs/SKILL.md using worker_command.
 # authored_respond = true
+# Optional: treat Slack threads and Jira issues as tasks on the same queue (skills/sync-tasks, skills/respond-tasks).
+# review axis = someone asked you; respond axis = you asked someone. Workers reply/update fully automatically.
+# tasks_respond = true
 # Run launchd jobs only in this hour window (start inclusive, end exclusive); omit to run always.
 # active_hours_start = 9
 # active_hours_end = 18

@@ -20,7 +20,7 @@ const UNLANDED_APPROVALS = new Set(["write-rejected", "write-outcome-unknown"]);
 export type JobState = "waiting" | "running" | "done" | "exhausted";
 export interface Job {
   url: string;
-  kind?: "authored";
+  kind?: "authored" | "task";
   scope: string;
   head: string;
   updated: string;
@@ -41,7 +41,7 @@ type Row = Record<string, any>;
 export interface Target {
   url: string;
   /** "authored": the user's own PR, answered by the respond prompt instead of a review. */
-  kind?: "authored";
+  kind?: "authored" | "task";
   scope: string;
   head: string;
   updated: string;
@@ -136,9 +136,11 @@ export function plan(
   const ready = Object.values(next)
     .filter((j) => j.state === "waiting" && (!j.next_at || Date.parse(j.next_at) <= now))
     .sort((a, b) => a.priority - b.priority || a.enqueued_at.localeCompare(b.enqueued_at));
-  let authored = Object.values(next).filter((j) => j.state === "running" && j.kind === "authored").length;
+  // Own-PR responders and Slack/Jira task workers each get their own cap.
+  const busy: Record<string, number> = {};
+  for (const j of Object.values(next)) if (j.state === "running" && j.kind) busy[j.kind] = (busy[j.kind] ?? 0) + 1;
   const start = ready
-    .filter((j) => j.kind !== "authored" || authored++ < authoredLimit)
+    .filter((j) => !j.kind || (busy[j.kind] = (busy[j.kind] ?? 0) + 1) <= authoredLimit)
     .slice(0, Math.max(0, limit - running));
   for (const j of start) {
     j.state = "running";
@@ -184,9 +186,12 @@ function writeQueue(root: string, q: Queue) {
 }
 
 const RESPOND_SKILL = "skills/respond-authored-prs/SKILL.md";
+const TASK_SKILL = "skills/respond-tasks/SKILL.md";
 function argv(root: string, job: Job): string[] {
   const config = localConfig(join(root, "config/config.toml"));
   const command: string[] = config.worker_command;
+  if (job.kind === "task")
+    return [...command.slice(0, -1), `Read ${TASK_SKILL} and follow it for exactly this task (${job.scope} axis): ${job.url}`];
   if (job.kind === "authored")
     return [...command.slice(0, -1), `Read ${RESPOND_SKILL} and follow it for exactly this pull request you authored: ${job.url}`];
   const scope = (config.scopes ?? []).find((s: any) => s.name === job.scope);
@@ -232,10 +237,11 @@ const readExit = (root: string) => (url: string) => {
 // The respond worker's own exit is not the verdict: the job is done only when a live re-check shows the ball left the author.
 const SCRIPT = '"$@"; echo $? > "$QUEUE_EXIT_FILE"';
 const AUTHORED_SCRIPT = '"$@"; "$QUEUE_BUN" "$QUEUE_AUTHORED" check "$QUEUE_URL"; echo $? > "$QUEUE_EXIT_FILE"';
+const TASK_SCRIPT = '"$@"; "$QUEUE_BUN" "$QUEUE_TASKS" check "$QUEUE_URL"; echo $? > "$QUEUE_EXIT_FILE"';
 
-export function tick(root: string, rows: Row[], now = Date.now(), authored: Target[] = []): Job[] {
+export function tick(root: string, rows: Row[], now = Date.now(), authored: Target[] = [], tasks: Target[] = []): Job[] {
   const q = settleExits(readQueue(root), readExit(root));
-  const { queue, start } = plan(q, [...targets(rows), ...authored.map((t) => ({ ...t, kind: "authored" as const }))], now, (pid) => workerAlive(pid, q));
+  const { queue, start } = plan(q, [...targets(rows), ...authored.map((t) => ({ ...t, kind: "authored" as const })), ...tasks.map((t) => ({ ...t, kind: "task" as const }))], now, (pid) => workerAlive(pid, q));
   const log = openSync(join(root, "logs/review-poller/worker.log"), "a");
   let failure: Error | null = null;
   try {
@@ -244,7 +250,7 @@ export function tick(root: string, rows: Row[], now = Date.now(), authored: Targ
         const exit = exitPath(root, job.url);
         mkdirSync(join(exit, ".."), { recursive: true });
         rmSync(exit, { force: true });
-        const child = spawn("/bin/sh", ["-c", job.kind === "authored" ? AUTHORED_SCRIPT : SCRIPT, "sh", ...argv(root, job)], {
+        const child = spawn("/bin/sh", ["-c", job.kind === "authored" ? AUTHORED_SCRIPT : job.kind === "task" ? TASK_SCRIPT : SCRIPT, "sh", ...argv(root, job)], {
           cwd: root,
           stdio: ["ignore", log, log],
           detached: true,
@@ -254,6 +260,7 @@ export function tick(root: string, rows: Row[], now = Date.now(), authored: Targ
             QUEUE_URL: job.url,
             QUEUE_BUN: process.execPath,
             QUEUE_AUTHORED: join(root, "app/src/authored-prs.ts"),
+            QUEUE_TASKS: join(root, "app/src/tasks.ts"),
           },
         });
         child.on("error", (e) => console.error(`error: queue spawn ${job.url}: ${e.message}`));

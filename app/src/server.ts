@@ -8,6 +8,7 @@ import { localConfig } from "./lib/org.ts";
 import type { Card } from "../webui/dashboard.ts";
 import { readLogs, stampLogs } from "./logs.ts";
 import { CONCURRENCY, readQueue, tick } from "./queue.ts";
+import { decideTask, pendingTasks, readTasks, TASK_LEDGER, taskTargets } from "./tasks.ts";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const DIST = resolve(import.meta.dir, "../dist");
@@ -44,6 +45,8 @@ async function monitorTick(): Promise<void> {
 const AUTO_MERGE_APP: unknown = localConfig().authored_auto_merge_app;
 // Responding to own PRs whose ball is with the author is opt-in: authored_respond = true.
 const RESPOND = localConfig().authored_respond === true;
+// Slack/Jira inbox: launchd review-task-sync fills tasks.jsonl; the queue runs workers for tasks whose ball is mine.
+const TASKS = localConfig().tasks_respond === true;
 async function authoredTick(): Promise<void> {
   const script = join(ROOT, "app/src/authored-prs.ts");
   try {
@@ -89,7 +92,7 @@ async function queueLoop() {
   let failures = 0;
   for (;;) {
     try {
-      tick(ROOT, readLedger(args.ledger), Date.now(), RESPOND ? authoredTargets(readAuthored(), readDispatched(), readDecisions()) : []);
+      tick(ROOT, readLedger(args.ledger), Date.now(), RESPOND ? authoredTargets(readAuthored(), readDispatched(), readDecisions()) : [], TASKS ? taskTargets(readTasks()) : []);
       failures = 0;
     } catch (e) {
       console.error(`error: queue tick: ${(e as Error).message}`);
@@ -120,7 +123,7 @@ function events(req: Request): Response {
   const stream = new ReadableStream({
     start(c) {
       timer = setInterval(() => {
-        const mtime = [args.ledger, AUTHORED_LEDGER].reduce((m, p) => m + (existsSync(p) ? statSync(p).mtimeMs : 0), 0);
+        const mtime = [args.ledger, AUTHORED_LEDGER, TASK_LEDGER].reduce((m, p) => m + (existsSync(p) ? statSync(p).mtimeMs : 0), 0);
         c.enqueue(mtime !== seen ? "data: changed\n\n" : ": ping\n\n");
         seen = mtime;
         if (syncState !== sentSync) c.enqueue(`event: sync\ndata: ${JSON.stringify(syncState)}\n\n`);
@@ -180,6 +183,18 @@ async function answer(req: Request): Promise<Response> {
   }
 }
 
+async function answerTask(req: Request): Promise<Response> {
+  const origin = req.headers.get("origin");
+  if (req.method !== "POST" || !req.headers.get("content-type")?.startsWith("application/json") || !origin || new URL(origin).host !== new URL(req.url).host)
+    return new Response("forbidden", { status: 403 });
+  try {
+    const { id, choice, custom } = (await req.json()) as { id: string; choice: string; custom?: boolean };
+    return json(decideTask(TASK_LEDGER, String(id), String(choice), custom === true));
+  } catch (e) {
+    return new Response((e as Error).message, { status: 409 });
+  }
+}
+
 async function asset(pathname: string): Promise<Response> {
   const path = resolve(DIST, "." + (pathname === "/" ? "/index.html" : pathname));
   const file = Bun.file(path);
@@ -198,6 +213,8 @@ Bun.serve({
     "/api/events": events,
     "/api/decisions": () => { try { return json(pendingDecisions(readAuthored(), readDispatched(), readDecisions())); } catch (e) { return fail(e); } },
     "/api/decide": answer,
+    "/api/tasks": () => { try { const t = readTasks(); return json({ tasks: t, pending: pendingTasks(t) }); } catch (e) { return fail(e); } },
+    "/api/tasks/decide": answerTask,
   },
   fetch: (req) => asset(new URL(req.url).pathname),
 });

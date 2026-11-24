@@ -286,3 +286,13 @@ skills/review-ledger-prs/
 - [exact-URL intake ポリシー](skills/add-review-ledger-prs/references/manual-intake-policy.md)
 
 オーケストレーションスクリプト専用のテストコードは作りません。検証は実際の台帳に対する `validate`、`sync`、`monitor --once`、`due` と、台帳掲載 PR に対する実フローで行います。
+
+## Slack/Jira タスク（always-on agent）
+
+PR と同じ queue で Slack スレッドと Jira チケットを扱います（`config.toml` の `tasks_respond = true`）。
+
+- event inbox: launchd `review-task-sync` が 10 分ごとに `bun app/src/tasks.ts sync` を実行し、`skills/sync-tasks` が brucke MCP で収集した結果を `tasks.jsonl` に upsert（id で重複排除）。
+- 2 軸: `review` = 相手→自分の依頼（Jira は自分アサイン）、`respond` = 自分→相手の依頼（Jira は自分作成、自動作成は除外）。
+- worker: ball が `mine` の task を queue が `skills/respond-tasks` で処理し、`tasks.ts check` で ball が離れたことを検証。
+- timers: `theirs` には必ず `follow_up_at` を設定し、期限到来で再実行。
+- deferred: 判断が必要なものは `tasks.ts dispatch` で `human` に渡し、`/api/tasks/decide` の回答で再開。
