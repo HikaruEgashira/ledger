@@ -10,7 +10,7 @@ import type { Card } from "../webui/dashboard.ts";
 import { readLogs } from "./logs.ts";
 import { ingestLogs, openDb } from "./db.ts";
 import { CONCURRENCY, readQueue, tick } from "./queue.ts";
-import { decideTask, pendingTasks, readTasks, TASK_LEDGER, taskCard, taskTargets } from "./tasks.ts";
+import { decideTask, pendingTasks, readTasks, TASK_LEDGER, taskCard, taskCards, taskTargets } from "./tasks.ts";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const db = openDb(ROOT);
@@ -181,10 +181,8 @@ function rows(): Response {
     completed_at: null,
     queue: tag(r.url),
   }));
-  const tasks: Card[] = readTasks().map((t) => {
-    const { key: _key, ...c } = taskCard(t);
-    return { ...c, queue: tag(t.id) };
-  });
+  // Linked tasks show once, on their primary's card.
+  const tasks: Card[] = taskCards(readTasks()).map(({ key: _key, id, ...c }) => ({ ...c, queue: tag(id) }));
   return json([...review, ...authored, ...tasks]);
 }
 
@@ -202,6 +200,7 @@ async function answer(req: Request): Promise<Response> {
   if (!sameOriginPost(req)) return new Response("forbidden", { status: 403 });
   try {
     const { url, head, choice, custom } = (await req.json()) as { url: string; head: string; choice: string; custom?: boolean };
+    if (String(head).startsWith(TASK_HEAD)) return json(decideTask(TASK_LEDGER, String(head).slice(TASK_HEAD.length), String(choice), custom === true));
     if (!custom && choice === CLOSE) {
       if (typeof AUTO_MERGE_APP !== "string" || !AUTO_MERGE_APP) throw new Error("authored_auto_merge_app is not set");
       const r = Bun.spawnSync(["gh", "pr", "close", url], { env: { ...process.env, GHTKN_APP: AUTO_MERGE_APP }, stderr: "pipe" });
@@ -211,6 +210,17 @@ async function answer(req: Request): Promise<Response> {
   } catch (e) {
     return new Response((e as Error).message, { status: 409 });
   }
+}
+
+// Slack/Jira task questions share the decide tab; their head carries the task id.
+const TASK_HEAD = "task:";
+function taskDecisions() {
+  const rows = readTasks();
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return pendingTasks(rows).map((t) => {
+    const c = taskCard(byId.get(t.id)!);
+    return { url: t.url, repository: c.repository, pr_number: c.pr_number, title: t.title, reason: t.axis, head: TASK_HEAD + t.id, question: t.question, options: t.options, asked_at: byId.get(t.id)!.synced_at, held: t.held };
+  });
 }
 
 async function answerTask(req: Request): Promise<Response> {
@@ -241,7 +251,7 @@ Bun.serve({
     "/api/queue": () => json({ limit: CONCURRENCY, jobs: Object.values(readQueue(ROOT)) }),
     "/api/logs": () => { try { ingestLogs(db, ROOT); return json(readLogs(ROOT, readLedger(args.ledger), db)); } catch (e) { return fail(e); } },
     "/api/events": events,
-    "/api/decisions": () => { try { return json(pendingDecisions(readAuthored(), readDispatched(), readDecisions())); } catch (e) { return fail(e); } },
+    "/api/decisions": () => { try { return json([...pendingDecisions(readAuthored(), readDispatched(), readDecisions()), ...taskDecisions()]); } catch (e) { return fail(e); } },
     "/api/decide": answer,
     "/api/tasks": () => { try { const t = readTasks(); return json({ tasks: t, pending: pendingTasks(t) }); } catch (e) { return fail(e); } },
     "/api/tasks/decide": answerTask,

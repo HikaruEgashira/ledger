@@ -38,6 +38,8 @@ export interface TaskRow {
   options?: string[];
   answer?: { choice: string; at: string; by: "human" | "auto" };
   note?: string;
+  /** Related items (Slack threads, Jira issues, GitHub PRs) this request also lives in; shared links group tasks. */
+  links?: string[];
   intake_at: string;
   synced_at: string;
 }
@@ -117,17 +119,53 @@ export interface TaskTarget {
   priority: number;
 }
 /** Tasks a worker should run now: ball mine, an answered deferral, or a due follow-up timer. */
+/** Canonical key of a Slack thread, Jira issue or GitHub PR URL; other URLs do not group. */
+export function refKey(url: string): string | null {
+  const gh = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/.exec(url);
+  return gh ? `gh:${gh[1]}#${gh[2]}` : idFromUrl(url);
+}
+
+/** One request, many places: tasks sharing a Slack thread, Jira issue or PR form a group led by one primary. */
+export function groups(rows: TaskRow[]): Map<string, { primary: string; members: string[] }> {
+  const parent = new Map(rows.map((r) => [r.id, r.id]));
+  const find = (x: string): string => (parent.get(x) === x ? x : (parent.set(x, find(parent.get(x)!)), parent.get(x)!));
+  const owner = new Map<string, string>();
+  for (const r of rows)
+    for (const k of [r.id, ...(r.links ?? []).map(refKey)].filter(Boolean) as string[]) {
+      const o = owner.get(k);
+      if (o) parent.set(find(r.id), find(o));
+      else owner.set(k, r.id);
+    }
+  const rank = (r: TaskRow) => (r.source === "jira" ? 0 : 1);
+  const by = new Map<string, TaskRow[]>();
+  for (const r of rows) by.set(find(r.id), [...(by.get(find(r.id)) ?? []), r]);
+  const out = new Map<string, { primary: string; members: string[] }>();
+  for (const g of by.values()) {
+    // The system of record leads: Jira over Slack, then the earliest intake.
+    const [p, ...rest] = [...g].sort((a, b) => rank(a) - rank(b) || a.intake_at.localeCompare(b.intake_at));
+    const v = { primary: p!.id, members: rest.map((r) => r.id) };
+    for (const r of g) out.set(r.id, v);
+  }
+  return out;
+}
+const isPrimary = (gs: ReturnType<typeof groups>, id: string) => gs.get(id)?.primary === id;
+
 export function taskTargets(rows: TaskRow[], now = Date.now()): TaskTarget[] {
   const out: TaskTarget[] = [];
+  const gs = groups(rows);
+  const byId = new Map(rows.map((r) => [r.id, r]));
   for (const r of rows) {
+    if (!isPrimary(gs, r.id)) continue; // a member is worked through its primary
+    const members = gs.get(r.id)!.members.map((m) => byId.get(m)!);
     const due = r.ball === "theirs" && r.follow_up_at && Date.parse(r.follow_up_at) <= now;
     const answered = r.ball === "human" && r.answer && r.answer.choice !== HOLD;
-    if (r.ball !== "mine" && r.ball !== "triage" && !due && !answered) continue;
+    const moved = members.some((m) => m.ball === "triage"); // new activity on a linked thread/issue
+    if (r.ball !== "mine" && r.ball !== "triage" && !due && !answered && !(moved && r.ball !== "human")) continue;
     out.push({
       url: r.id,
       kind: "task",
       scope: r.axis,
-      head: r.activity,
+      head: [r.activity, ...members.map((m) => m.activity)].join("|"),
       updated: [r.ball, due ? r.follow_up_at : "", r.answer?.at ?? ""].join("|"),
       priority: r.axis === "review" ? 55 : 65,
     });
@@ -146,8 +184,9 @@ export interface PendingTask {
   held: boolean;
 }
 export function pendingTasks(rows: TaskRow[]): PendingTask[] {
+  const gs = groups(rows);
   return rows
-    .filter((r) => r.ball === "human" && r.question && (!r.answer || r.answer.choice === HOLD))
+    .filter((r) => isPrimary(gs, r.id) && r.ball === "human" && r.question && (!r.answer || r.answer.choice === HOLD))
     .map((r) => ({
       id: r.id,
       url: r.url,
@@ -236,6 +275,20 @@ function sync(path: string): number {
   return r.exitCode ?? 1;
 }
 
+function withLinks(r: TaskRow, add: string[] | undefined): Partial<TaskRow> {
+  if (!add?.length) return {};
+  for (const u of add) if (!/^https:\/\//.test(u)) throw new Error(`--link must be a URL: ${u}`);
+  return { links: [...new Set([...(r.links ?? []), ...add])] };
+}
+
+/** The primary's record covers its linked members: they leave triage until their own source moves again. */
+function settleMembers(path: string, id: string): void {
+  const rows = readTasks(path);
+  const g = groups(rows).get(id);
+  if (!g || g.primary !== id || !g.members.length) return;
+  for (const m of g.members) update(path, m, (r) => (r.ball === "done" ? r : { ...r, ball: "done", note: `grouped into ${id}`, question: undefined, options: undefined }));
+}
+
 if (import.meta.main) {
   const { values: v, positionals: p } = parseArgs({
     allowPositionals: true,
@@ -252,13 +305,14 @@ if (import.meta.main) {
       "keywords-searched": { type: "string" },
       axis: { type: "string" },
       title: { type: "string" },
+      link: { type: "string", multiple: true },
     },
   });
   const path = v.ledger!;
   const [cmd = "list", id] = p;
-  const need = ["record", "dispatch", "check", "decide", "show"];
+  const need = ["record", "dispatch", "check", "decide", "show", "link"];
   if (!["sync", "upsert", "list", ...need].includes(cmd) || (need.includes(cmd) && !id)) {
-    console.error("usage: tasks.ts {sync|upsert [--slack-covered-until ISO] [--keywords-searched JSON] <JSONL|list|show ID|record ID --ball B [--axis A] [--title T] [--follow-up ISO] [--note T]|dispatch ID --reason T [--option T]...|decide ID --choice T|check ID}");
+    console.error("usage: tasks.ts {sync|upsert [--slack-covered-until ISO] [--keywords-searched JSON] <JSONL|list|show ID|record ID --ball B [--axis A] [--title T] [--link URL]...|link ID URL... [--follow-up ISO] [--note T]|dispatch ID --reason T [--option T]...|decide ID --choice T|check ID}");
     process.exit(2);
   }
   if (cmd === "sync") process.exit(sync(path));
@@ -282,8 +336,11 @@ if (import.meta.main) {
     process.exit(0);
   }
   if (cmd === "show") {
-    const r = readTasks(path).find((r) => r.id === id);
-    console.log(JSON.stringify(r ?? null, null, 1));
+    const rows = readTasks(path);
+    const r = rows.find((r) => r.id === id);
+    const g = groups(rows).get(id!);
+    // The group is the unit of work: show the primary and every linked member.
+    console.log(JSON.stringify(r ? { ...r, group: g && { primary: g.primary, members: [g.primary, ...g.members].filter((m) => m !== id).map((m) => rows.find((x) => x.id === m)) } } : null, null, 1));
     process.exit(r ? 0 : 1);
   }
   if (cmd === "record") {
@@ -294,13 +351,21 @@ if (import.meta.main) {
     const fu = v["follow-up"];
     if (fu && Number.isNaN(Date.parse(fu))) throw new Error("--follow-up must be ISO 8601");
     if (ball === "theirs" && !fu) throw new Error("--follow-up is required when the ball is theirs");
-    update(path, id!, (r) => ({ ...r, ...(axis ? { axis } : {}), ...(v.title ? { title: v.title.slice(0, 200) } : {}), ball, follow_up_at: fu, note: v.note ?? r.note, question: undefined, options: undefined, answer: undefined }));
+    update(path, id!, (r) => ({ ...r, ...(axis ? { axis } : {}), ...(v.title ? { title: v.title.slice(0, 200) } : {}), ...withLinks(r, v.link), ball, follow_up_at: fu, note: v.note ?? r.note, question: undefined, options: undefined, answer: undefined }));
+    settleMembers(path, id!);
     console.log(`recorded\t${id}\t${ball}`);
+    process.exit(0);
+  }
+  if (cmd === "link") {
+    const r = update(path, id!, (r) => ({ ...r, ...withLinks(r, p.slice(2)) }));
+    const g = groups(readTasks(path)).get(id!)!;
+    console.log(`linked\t${id}\t${(r.links ?? []).length}\tprimary=${g.primary}\tmembers=${g.members.join(",")}`);
     process.exit(0);
   }
   if (cmd === "dispatch") {
     if (!v.reason) throw new Error("--reason is required");
-    update(path, id!, (r) => ({ ...r, ball: "human", question: v.reason, options: v.option ?? [], answer: undefined, follow_up_at: undefined }));
+    update(path, id!, (r) => ({ ...r, ...withLinks(r, v.link), ball: "human", question: v.reason, options: v.option ?? [], answer: undefined, follow_up_at: undefined }));
+    settleMembers(path, id!);
     console.log(`dispatched\t${id}`);
     process.exit(0);
   }
@@ -316,6 +381,14 @@ if (import.meta.main) {
 }
 
 /** Board card: review axis reads like a review request, respond axis like an own PR (same columns, no new panel). */
+export function taskCards(rows: TaskRow[]) {
+  const gs = groups(rows);
+  return rows.filter((r) => isPrimary(gs, r.id)).map((r) => {
+    const n = gs.get(r.id)!.members.length;
+    const c = taskCard(r);
+    return n ? { ...c, action: [c.action, `+${n} linked`].filter(Boolean).join(" · ") } : c;
+  });
+}
 export function taskCard(r: TaskRow) {
   const review = r.axis === "review";
   const status =
@@ -344,5 +417,6 @@ export function taskCard(r: TaskRow) {
     merged_at: null,
     completed_at: r.ball === "done" ? r.synced_at : null,
     key,
+    id: r.id,
   };
 }

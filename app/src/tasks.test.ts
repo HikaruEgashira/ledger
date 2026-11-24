@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { advance, idFromUrl, keywordPlan, taskCard, LOOKBACK_MS, merge, readWatermark, pendingTasks, settled, taskTargets, validate, type Incoming, type TaskRow } from "./tasks.ts";
+import { advance, groups, idFromUrl, keywordPlan, taskCard, taskCards, LOOKBACK_MS, merge, readWatermark, pendingTasks, settled, taskTargets, validate, type Incoming, type TaskRow } from "./tasks.ts";
 
 const I = (o: Partial<Incoming> = {}): Incoming => ({
   id: "jira:PROJ-1",
@@ -100,5 +100,29 @@ describe("intake follow-up", () => {
     const r = merge([], [I({ ball: "theirs" })], "2026-11-24T00:00:00.000Z").rows[0]!;
     expect(r.follow_up_at).toBe("2026-11-26T00:00:00.000Z");
     expect(taskTargets([r], Date.parse("2026-11-26T00:00:01Z")).length).toBe(1);
+  });
+});
+
+describe("groups", () => {
+  const T = (id: string, source: "slack" | "jira", links: string[] = [], o: Partial<TaskRow> = {}): TaskRow =>
+    ({ id, source, axis: "review", url: "u", title: id, counterpart: "", ball: "mine", activity: "1", intake_at: "2026-11-24T00:00:00Z", synced_at: "", links, ...o }) as TaskRow;
+  it("groups tasks that link each other or the same PR, led by Jira", () => {
+    const rows = [
+      T("slack:C1:1.1", "slack", ["https://x.atlassian.net/browse/PSIRT-1"]),
+      T("jira:PSIRT-1", "jira"),
+      T("slack:C2:2.2", "slack", ["https://github.com/o/r/pull/5"]),
+      T("slack:C3:3.3", "slack", ["https://github.com/o/r/pull/5"], { intake_at: "2026-11-25T00:00:00Z" }),
+      T("slack:C4:4.4", "slack"),
+    ];
+    const g = groups(rows);
+    expect(g.get("slack:C1:1.1")).toEqual({ primary: "jira:PSIRT-1", members: ["slack:C1:1.1"] });
+    expect(g.get("slack:C3:3.3")!.primary).toBe("slack:C2:2.2");
+    expect(g.get("slack:C4:4.4")).toEqual({ primary: "slack:C4:4.4", members: [] });
+    expect(taskTargets(rows).map((t) => t.url).sort()).toEqual(["jira:PSIRT-1", "slack:C2:2.2", "slack:C4:4.4"]);
+    expect(taskCards(rows).length).toBe(3);
+  });
+  it("reopens a settled primary when a linked member gets new activity", () => {
+    const rows = [T("jira:PSIRT-1", "jira", [], { ball: "theirs", follow_up_at: "2099-01-01T00:00:00Z" }), T("slack:C1:1.1", "slack", ["https://x.atlassian.net/browse/PSIRT-1"], { ball: "triage" })];
+    expect(taskTargets(rows).map((t) => t.url)).toEqual(["jira:PSIRT-1"]);
   });
 });

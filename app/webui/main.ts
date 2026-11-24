@@ -391,7 +391,7 @@ function renderDecide() {
     ...pending.map((p) => {
       const card = el("div", p.held ? "q held" : "q");
       const meta = el("div", "meta");
-      const a = el("a", null, `${p.repository}#${p.pr_number}`) as HTMLAnchorElement;
+      const a = el("a", null, p.pr_number ? `${p.repository.split("/").at(-1)}#${p.pr_number}` : p.repository) as HTMLAnchorElement;
       a.href = p.url;
       a.target = "_blank";
       a.rel = "noopener";
