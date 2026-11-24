@@ -64,7 +64,16 @@ export interface Incoming {
   ball: Ball;
   summary?: string;
 }
+/** The id is derived from the URL, so DLP masking of a raw ts in agent output cannot corrupt the dedupe key. */
+export function idFromUrl(url: string): string | null {
+  const s = /\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})(?:\?(?:.*&)?thread_ts=(\d+\.\d+))?/.exec(url);
+  if (s) return `slack:${s[1]}:${s[4] ?? `${s[2]}.${s[3]}`}`;
+  const j = /\/browse\/([A-Z][A-Z0-9]+-\d+)(?:$|[?#/])/.exec(url);
+  return j ? `jira:${j[1]}` : null;
+}
+
 export function validate(x: any): Incoming {
+  x = { ...x, id: idFromUrl(String(x?.url ?? "")) ?? x?.id };
   if (!ID_RE.test(x?.id ?? "")) throw new Error(`invalid id: ${x?.id}`);
   if (!["slack", "jira"].includes(x.source) || !x.id.startsWith(x.source + ":")) throw new Error(`invalid source: ${x.id}`);
   if (!["review", "respond"].includes(x.axis)) throw new Error(`invalid axis: ${x.id}`);

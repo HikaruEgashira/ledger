@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { merge, pendingTasks, settled, taskTargets, validate, type Incoming, type TaskRow } from "./tasks.ts";
+import { idFromUrl, merge, pendingTasks, settled, taskTargets, validate, type Incoming, type TaskRow } from "./tasks.ts";
 
 const I = (o: Partial<Incoming> = {}): Incoming => ({
   id: "jira:PROJ-1",
@@ -17,8 +17,14 @@ const now = "2026-11-24T00:00:00Z";
 describe("tasks", () => {
   it("validates ids and urls", () => {
     expect(() => validate(I())).not.toThrow();
-    expect(() => validate(I({ id: "slack:C1:1.2" }))).toThrow(); // source mismatch
+    expect(() => validate(I({ source: "slack" }))).toThrow(); // source mismatch with url
     expect(() => validate(I({ url: "https://evil.example/x" }))).toThrow();
+  });
+  it("derives ids from urls so a masked id is ignored", () => {
+    const url = "https://x.slack.com/archives/C01ABC/p1794971997292459";
+    expect(validate(I({ source: "slack", id: "slack:C01ABC:1794971997.292459", url })).id).toBe("slack:C01ABC:1794971997.292459");
+    expect(idFromUrl(url + "?thread_ts=1794971000.000100&cid=C01ABC")).toBe("slack:C01ABC:1794971000.000100");
+    expect(idFromUrl("https://x.atlassian.net/browse/OPS2-8420")).toBe("jira:OPS2-8420");
   });
   it("keeps worker state until activity changes", () => {
     let { rows } = merge([], [I()], now);
