@@ -94,3 +94,11 @@ describe("keyword rotation", () => {
     expect(next).toEqual([{ q: "b", after: "2026-11-23T12:00:00.000Z" }, { q: "a", after: "2026-11-24T11:00:00.000Z" }]);
   });
 });
+
+describe("intake follow-up", () => {
+  it("gives a request intaken as theirs a follow-up timer", () => {
+    const r = merge([], [I({ ball: "theirs" })], "2026-11-24T00:00:00.000Z").rows[0]!;
+    expect(r.follow_up_at).toBe("2026-11-26T00:00:00.000Z");
+    expect(taskTargets([r], Date.parse("2026-11-26T00:00:01Z")).length).toBe(1);
+  });
+});

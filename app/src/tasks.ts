@@ -82,13 +82,18 @@ export function validate(x: any): Incoming {
 }
 
 /** Merge one sync result: new activity re-reads the source's ball; unchanged activity keeps the worker's state. */
+/** Default follow-up for a request intake already finds waiting on its counterpart. */
+export const FOLLOW_UP_MS = 2 * 86_400_000;
+
 export function merge(rows: TaskRow[], incoming: Incoming[], now: string): { rows: TaskRow[]; changed: string[] } {
   const by = new Map(rows.map((r) => [r.id, r]));
   const changed: string[] = [];
   for (const i of incoming) {
     const old = by.get(i.id);
     if (!old) {
-      by.set(i.id, { ...i, intake_at: now, synced_at: now });
+      // Waiting on someone from the start still needs a timer, or nobody ever follows up.
+      const follow = i.ball === "theirs" ? { follow_up_at: new Date(Date.parse(now) + FOLLOW_UP_MS).toISOString() } : {};
+      by.set(i.id, { ...i, ...follow, intake_at: now, synced_at: now });
       changed.push(i.id);
     } else if (old.activity !== i.activity && old.ball === "human" && !old.answer) {
       // A pending question waits for the human; new activity is context for the answer, not a reason to act alone.
