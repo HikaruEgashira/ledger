@@ -230,9 +230,10 @@ const readExit = (root: string) => (url: string) => {
 };
 
 // The respond worker's own exit is not the verdict: the job is done only when a live re-check shows the ball left the author.
-const SCRIPT = '"$@"; echo $? > "$QUEUE_EXIT_FILE"';
-const AUTHORED_SCRIPT = '"$@"; "$QUEUE_BUN" "$QUEUE_AUTHORED" check "$QUEUE_URL"; echo $? > "$QUEUE_EXIT_FILE"';
-const TASK_SCRIPT = '"$@"; "$QUEUE_BUN" "$QUEUE_TASKS" check "$QUEUE_URL"; echo $? > "$QUEUE_EXIT_FILE"';
+// The shell exits with the verdict itself: recordExit takes the child's exit code, so a trailing echo would turn every failure into 0.
+const SCRIPT = '"$@"; c=$?; echo $c > "$QUEUE_EXIT_FILE"; exit $c';
+const AUTHORED_SCRIPT = '"$@"; "$QUEUE_BUN" "$QUEUE_AUTHORED" check "$QUEUE_URL"; c=$?; echo $c > "$QUEUE_EXIT_FILE"; exit $c';
+const TASK_SCRIPT = '"$@"; "$QUEUE_BUN" "$QUEUE_TASKS" check "$QUEUE_URL"; c=$?; echo $c > "$QUEUE_EXIT_FILE"; exit $c';
 
 export function tick(root: string, rows: Row[], now = Date.now(), authored: Target[] = [], tasks: Target[] = []): Job[] {
   const q = settleExits(readQueue(root), readExit(root));
