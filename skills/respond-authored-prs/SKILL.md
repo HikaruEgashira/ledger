@@ -103,3 +103,13 @@ of your options) and do not dispatch the same question again.
 
 Force-push, rewrite history, merge, close, dismiss reviews, bypass branch
 protection, mark a thread resolved without a reply, or act on another PR.
+
+## Report back to the decide thread
+
+When this run carried out a human decision (an `answer` on the task / a decision for this PR), check where it was asked and reply there with one line in Japanese: what you did, with links (comment, PR, message) or why nothing was needed.
+
+```sh
+bun app/src/decide-dm.ts thread <task id or PR URL>   # prints: channel<TAB>ts<TAB>choice
+```
+
+Reply in that thread with `slack_send_message` (`thread_ts` = ts). No thread printed: skip.

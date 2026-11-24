@@ -24,8 +24,13 @@ export interface Posted {
   channel: string;
   ts: string;
   at: string;
+  /** ts of the latest user reply already handled (answered or a question replied to). */
+  handled?: string;
 }
 export type State = Record<string, Posted>;
+/** Where each ref's latest decision was asked, so the resumed worker can report back in that thread. */
+export type Answered = Record<string, { channel: string; ts: string; choice: string; at: string }>;
+const ANSWERED = join(ROOT, "logs", "decide-dm-answered.json");
 
 /** New DMs per run; a backlog drains over several runs instead of flooding the DM at once. */
 export const POST_PER_RUN = 5;
@@ -91,6 +96,14 @@ export function plan(open: Open[], state: State): { post: Open[]; watch: (Open &
   };
 }
 
+function readAnswered(): Answered {
+  try {
+    return existsSync(ANSWERED) ? JSON.parse(readFileSync(ANSWERED, "utf8")) : {};
+  } catch {
+    return {};
+  }
+}
+
 function answer(key: string, reply: string): string {
   const o = openDecisions().find((x) => x.key === key);
   if (!o) throw new Error(`not pending: ${key}`);
@@ -99,6 +112,13 @@ function answer(key: string, reply: string): string {
     const head = /@([0-9a-f]+):/.exec(key)?.[1] ?? "";
     decide(AUTHORED_LEDGER, o.ref, head, choice, custom);
   } else decideTask(TASK_LEDGER, o.ref, choice, custom);
+  const posted = readState()[key];
+  if (posted) {
+    const a = readAnswered();
+    a[o.ref] = { channel: posted.channel, ts: posted.ts, choice, at: new Date().toISOString() };
+    mkdirSync(dirname(ANSWERED), { recursive: true });
+    writeFileSync(ANSWERED, JSON.stringify(a, null, 1));
+  }
   return choice;
 }
 
@@ -111,8 +131,8 @@ function sync(): number {
   writeState(state);
   if (!p.post.length && !p.watch.length) return 0;
   const prompt = `Read ${SKILL} and follow it exactly once, then exit. DM user: ${user}. Plan: ${JSON.stringify({ post: p.post, watch: p.watch })}`;
-  // A small model is enough: posting and reading replies needs no judgment.
-  const r = Bun.spawnSync(oneShot(workerCommand(), prompt, { model: "sonnet", effort: "low" }), { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"] });
+  // Sonnet: posting, reading replies and answering questions about one decision.
+  const r = Bun.spawnSync(oneShot(workerCommand(), prompt, { model: "sonnet", effort: "medium" }), { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"] });
   return r.exitCode ?? 1;
 }
 
@@ -130,10 +150,24 @@ if (import.meta.main) {
     console.log(`posted\t${key}`);
     process.exit(0);
   }
+  if (cmd === "handled" && key && rest.length === 1) {
+    const state = readState();
+    if (!state[key]) throw new Error(`not posted: ${key}`);
+    state[key]!.handled = rest[0]!;
+    writeState(state);
+    console.log(`handled\t${key}`);
+    process.exit(0);
+  }
+  if (cmd === "thread" && key) {
+    // key here is the ref (PR URL or task id); prints the DM thread of its answered decision.
+    const t = readAnswered()[key];
+    if (t) console.log(`${t.channel}\t${t.ts}\t${t.choice}`);
+    process.exit(t ? 0 : 1);
+  }
   if (cmd === "answer" && key && rest.length) {
     console.log(`decided\t${key}\t${answer(key, rest.join(" "))}`);
     process.exit(0);
   }
-  console.error("usage: decide-dm.ts {sync|list|posted KEY CHANNEL TS|answer KEY REPLY}");
+  console.error("usage: decide-dm.ts {sync|list|posted KEY CHANNEL TS|answer KEY REPLY|handled KEY REPLY_TS|thread REF}");
   process.exit(2);
 }
