@@ -72,3 +72,14 @@ describe("triage and cards", () => {
     expect(taskCard({ ...row, id: "jira:OPS2-8420", axis: "respond", ball: "theirs" })).toMatchObject({ kind: "authored", status: "mine_review_requested", repository: "jira/OPS2", pr_number: 8420 });
   });
 });
+
+describe("human hold", () => {
+  it("keeps an unanswered question through new activity", () => {
+    const base = merge([], [I()], "2026-11-24T00:00:00Z").rows[0]!;
+    const asked: TaskRow = { ...base, ball: "human", question: "q" };
+    const r = merge([asked], [I({ activity: "2", ball: "triage" })], "2026-11-24T01:00:00Z").rows[0]!;
+    expect(r.ball).toBe("human");
+    expect(r.question).toBe("q");
+    expect(r.activity).toBe("2");
+  });
+});

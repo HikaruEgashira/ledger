@@ -90,6 +90,10 @@ export function merge(rows: TaskRow[], incoming: Incoming[], now: string): { row
   const by = new Map(rows.map((r) => [r.id, r]));
   const changed: string[] = [];
   for (const i of incoming) {
+    } else if (old.activity !== i.activity && old.ball === "human" && !old.answer) {
+      // A pending question waits for the human; new activity is context for the answer, not a reason to act alone.
+      by.set(i.id, { ...old, activity: i.activity, title: i.title, synced_at: now });
+      changed.push(i.id);
     const old = by.get(i.id);
     if (!old) {
       by.set(i.id, { ...i, intake_at: now, synced_at: now });
