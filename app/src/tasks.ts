@@ -179,9 +179,31 @@ export function decideTask(path: string, id: string, choice: string, custom = fa
 /** Ball left the worker: anything but mine, or an answered question still unconsumed counts as not done. */
 export const settled = (r: TaskRow | undefined) => !r || (r.ball !== "mine" && !(r.ball === "human" && r.answer && r.answer.choice !== HOLD));
 
+// Slack coverage watermark: each run scans only from here, so a run never has to cover 14 days of with:me at once.
+export const LOOKBACK_MS = 14 * 86_400_000;
+const watermarkPath = (ledger: string) => join(dirname(ledger), "logs", "task-sync-watermark.json");
+export function readWatermark(ledger: string, now = Date.now()): string {
+  try {
+    const at = JSON.parse(readFileSync(watermarkPath(ledger), "utf8")).slack_covered_until;
+    if (Date.parse(at) > now - LOOKBACK_MS) return at;
+  } catch {}
+  return new Date(now - LOOKBACK_MS).toISOString();
+}
+/** Advance only forward: a run reports the newest time it fully covered, never past now. */
+export function advance(ledger: string, until: string, now = Date.now()): string {
+  const t = Date.parse(until);
+  if (Number.isNaN(t) || t > now + 60_000) throw new Error(`invalid --slack-covered-until: ${until}`);
+  const cur = readWatermark(ledger, now);
+  if (t <= Date.parse(cur)) return cur;
+  mkdirSync(dirname(watermarkPath(ledger)), { recursive: true });
+  writeFileSync(watermarkPath(ledger), JSON.stringify({ slack_covered_until: until }));
+  return until;
+}
+
 function sync(path: string): number {
   // Slack/Jira are reachable only through the worker's MCP connectors; the skill pipes results into `upsert`.
-  const prompt = `Read ${SYNC_SKILL} and follow it exactly once, then exit.`;
+  const since = readWatermark(path);
+  const prompt = `Read ${SYNC_SKILL} and follow it exactly once, then exit. Slack window starts at ${since}.`;
   const r = Bun.spawnSync(oneShot(workerCommand(), prompt, BATCH), { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, TASK_LEDGER: path } });
   return r.exitCode ?? 1;
 }
@@ -198,13 +220,14 @@ if (import.meta.main) {
       option: { type: "string", multiple: true },
       choice: { type: "string" },
       custom: { type: "boolean", default: false },
+      "slack-covered-until": { type: "string" },
     },
   });
   const path = v.ledger!;
   const [cmd = "list", id] = p;
   const need = ["record", "dispatch", "check", "decide", "show"];
   if (!["sync", "upsert", "list", ...need].includes(cmd) || (need.includes(cmd) && !id)) {
-    console.error("usage: tasks.ts {sync|upsert <JSONL|list|show ID|record ID --ball B [--follow-up ISO] [--note T]|dispatch ID --reason T [--option T]...|decide ID --choice T|check ID}");
+    console.error("usage: tasks.ts {sync|upsert [--slack-covered-until ISO] <JSONL|list|show ID|record ID --ball B [--follow-up ISO] [--note T]|dispatch ID --reason T [--option T]...|decide ID --choice T|check ID}");
     process.exit(2);
   }
   if (cmd === "sync") process.exit(sync(path));
@@ -215,6 +238,7 @@ if (import.meta.main) {
     const { rows, changed } = merge(readTasks(path), incoming, now);
     writeTasks(path, rows);
     for (const c of changed) console.log(`changed\t${c}`);
+    if (v["slack-covered-until"]) console.log(`slack-covered-until\t${advance(path, v["slack-covered-until"])}`);
     process.exit(0);
   }
   if (cmd === "list") {

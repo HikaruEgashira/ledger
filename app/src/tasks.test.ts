@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { idFromUrl, merge, pendingTasks, settled, taskTargets, validate, type Incoming, type TaskRow } from "./tasks.ts";
+import { advance, idFromUrl, LOOKBACK_MS, merge, readWatermark, pendingTasks, settled, taskTargets, validate, type Incoming, type TaskRow } from "./tasks.ts";
 
 const I = (o: Partial<Incoming> = {}): Incoming => ({
   id: "jira:PROJ-1",
@@ -48,5 +48,17 @@ describe("tasks", () => {
     expect(taskTargets([answered], t).length).toBe(1);
     expect(settled(answered)).toBe(false);
     expect(settled({ ...base, ball: "done" })).toBe(true);
+  });
+});
+
+describe("watermark", () => {
+  it("defaults to 14 days and only moves forward", () => {
+    const { mkdtempSync } = require("node:fs");
+    const ledger = `${mkdtempSync(`${process.env.TMPDIR ?? "/tmp"}/tasks-`)}/tasks.jsonl`;
+    const t = Date.parse("2026-11-24T00:00:00Z");
+    expect(readWatermark(ledger, t)).toBe(new Date(t - LOOKBACK_MS).toISOString());
+    expect(advance(ledger, "2026-11-20T00:00:00Z", t)).toBe("2026-11-20T00:00:00Z");
+    expect(advance(ledger, "2026-11-19T00:00:00Z", t)).toBe("2026-11-20T00:00:00Z");
+    expect(() => advance(ledger, "2026-12-01T00:00:00Z", t)).toThrow();
   });
 });

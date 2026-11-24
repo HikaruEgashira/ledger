@@ -11,7 +11,7 @@ This run only fills the inbox. Never post to Slack, never edit Jira, never act o
 
 Resolve the authenticated user once per run: Slack user via the Slack MCP user profile, Jira account via `atlassianUserInfo`. Call `getAccessibleAtlassianResources` first and pass the returned `cloudId` (the configured Jira site) to every Jira call; a guessed cloud id is rejected as "not explicitly granted".
 
-## Collect (last 14 days of activity)
+## Collect (Jira: open issues; Slack: from the window start)
 
 Two axes, mirroring GitHub review requests vs. own PRs:
 
@@ -22,7 +22,8 @@ Jira: issues assigned to me (`review`) and issues I requested (`respond`) that a
 
 ### Slack: pick up broadly, judge from context
 
-1. Candidates: `slack_search_public_and_private` with `with:me after:<14 days ago>`, `sort: timestamp`, `include_bots: true`, default `channel_types`. Follow `cursor` until no next page. Group by thread root.
+1. Candidates: `slack_search_public_and_private` with `with:me after:<window start date>` (the prompt gives the window start), `sort: timestamp`, `sort_dir: asc`, `include_bots: true`, default `channel_types`. Follow `cursor` page by page, oldest first. Group by thread root.
+   - Coverage is incremental: process oldest-first and stop when the run gets long. Pass `--slack-covered-until <ISO of the newest message whose thread you fully classified>` to `upsert`; the next run continues from there. Never report coverage past what you actually read.
 2. Never classify from a search hit alone. Read the whole thread, and follow whatever it points to (surrounding messages, linked issues, PRs, threads) until the request is clear.
 3. Axis = who originated the request, judged from the substance. Who posted, who is mentioned, or which tool relayed it does not decide it; a message posted by a bot or tool on someone's behalf is that person's.
 4. One request is one task: when the same request lives in several places, emit it once, preferring the system of record, and note the other locations in `summary`.
