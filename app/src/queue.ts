@@ -1,4 +1,5 @@
 // node:child_process: Bun.spawn cannot detach workers into their own process group.
+import * as store from "./lib/store.ts";
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -172,17 +173,11 @@ function workerAlive(pid: number, q: Queue): boolean {
 export const queuePath = (root: string) => join(root, "logs/queue.json");
 
 export function readQueue(root: string): Queue {
-  try {
-    return existsSync(queuePath(root)) ? JSON.parse(readFileSync(queuePath(root), "utf8")) : {};
-  } catch {
-    return {};
-  }
+  return store.readJson(queuePath(root), {});
 }
 
 function writeQueue(root: string, q: Queue) {
-  const tmp = queuePath(root) + ".tmp";
-  writeFileSync(tmp, JSON.stringify(q, null, 2));
-  renameSync(tmp, queuePath(root));
+  store.writeJson(queuePath(root), q, 2);
 }
 
 const RESPOND_SKILL = "skills/respond-authored-prs/SKILL.md";

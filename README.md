@@ -247,11 +247,22 @@ cd app && bun install && bun run start
 
 `serve`（`app/`、Bun / TypeScript）は `--interval` 秒ごとに `monitor --once` を実行し、別ループで worker queue を回し、`http://127.0.0.1:8765/` で台帳の board（queue の実行中は `in_progress` 列）、dashboard、log（`#log`、時間範囲・レベル・source で絞り込み、JST 表示）を返します。bind 先は loopback のみで、参照専用です。launchd では `launchd/reviewctl-serve.plist.in` を `sh scripts/install-launchd.sh` で checkout のパスに展開して登録します。検証は `cd app && bun test && bun run typecheck` で行います。
 
+## ローカルストア（SQLite / DuckDB）
+
+台帳と状態（`pull_requests.jsonl`、`authored_prs.jsonl`、`tasks.jsonl`、`logs/*.json(l)` の queue・判断履歴・cursor など）の正本はリポジトリ直下の `review-factory.db`（SQLite, WAL）です。ファイル名はストア内のキーとして残り、CLI・skill からの読み書きは従来どおり `reviewctl` / `tasks.ts` / `authored-prs.ts` 経由で行います。既存ファイルは初回アクセス時に一度だけ取り込まれ、`<file>.migrated` として残ります。`records` テーブルに台帳の各行が JSON で展開され、`logs` / `log_links` テーブルに各プロセスログが差分取り込みされます（90日保持）。`logs/decision-memory.md`、レビュー・delivery の証跡、プロセスの stdout/stderr ログはファイルのままです。
+
+検索は DuckDB で行います（sqlite 拡張は `scripts/rfq.sh` が初回に https で取得します）。
+
+```sh
+scripts/rfq.sh "SELECT key, data ->> '$.status' FROM records WHERE file = 'pull_requests.jsonl'"
+scripts/rfq.sh   # DuckDB シェル
+```
+
 ## ディレクトリ構成
 
 ```text
-pull_requests.jsonl
-  操作対象と現在状態を保持する唯一の台帳
+review-factory.db
+  台帳（pull_requests.jsonl ほか）と状態・ログを保持する SQLite ストア
 
 app/src/review-requests.ts
   個人宛て direct review request の trusted sync intake と exact URL intake の入口

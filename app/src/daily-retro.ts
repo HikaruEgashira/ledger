@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 // Aggregate one day of review-loop telemetry into logs/retro/<date>.json (stats only, no review artifacts).
+import * as store from "./lib/store.ts";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -57,7 +58,7 @@ export function retro(root = ROOT, now = new Date()): string {
       if (event.error) errors.add(`${event.event}: ${errorClass(event.error)}`);
     }
   const statuses = new Counter(), lastErrors = new Counter();
-  for (const line of readFileSync(join(root, "pull_requests.jsonl"), "utf8").split("\n")) {
+  for (const line of (store.readText(join(root, "pull_requests.jsonl")) ?? "").split("\n")) {
     if (!line) continue;
     const row = JSON.parse(line);
     statuses.add(row.status);

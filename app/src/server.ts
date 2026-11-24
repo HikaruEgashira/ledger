@@ -1,4 +1,5 @@
 import { existsSync, statSync } from "node:fs";
+import * as store from "./lib/store.ts";
 import { join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { readLedger, toCard } from "./ledger.ts";
@@ -6,11 +7,13 @@ import { AUTHORED_LEDGER, authoredTargets, CLOSE, decide, pendingDecisions, read
 import { examples, readHandled, watch, writeHandled } from "./auto-decide.ts";
 import { localConfig } from "./lib/org.ts";
 import type { Card } from "../webui/dashboard.ts";
-import { readLogs, stampLogs } from "./logs.ts";
+import { readLogs } from "./logs.ts";
+import { ingestLogs, openDb } from "./db.ts";
 import { CONCURRENCY, readQueue, tick } from "./queue.ts";
 import { decideTask, pendingTasks, readTasks, TASK_LEDGER, taskCard, taskTargets } from "./tasks.ts";
 
 const ROOT = resolve(import.meta.dir, "../..");
+const db = openDb(ROOT);
 const DIST = resolve(import.meta.dir, "../dist");
 const HOSTS = ["127.0.0.1", "localhost", "::1"];
 const CSP =
@@ -39,6 +42,16 @@ async function monitorTick(): Promise<void> {
     }).exited;
   } catch (e) {
     console.error(`error: ${(e as Error).message}`);
+  }
+}
+// Advances merged rows: completes not_applicable deliveries and records GitHub Actions releases.
+async function deliveryTick(): Promise<void> {
+  try {
+    await Bun.spawn([process.execPath, join(ROOT, "app/src/deliveryctl.ts"), "--ledger", args.ledger, "due", "--auto"], {
+      stdio: ["ignore", "ignore", "inherit"],
+    }).exited;
+  } catch (e) {
+    console.error(`error: delivery: ${(e as Error).message}`);
   }
 }
 // Enabling GitHub auto-merge on own non-draft PRs is opt-in: set authored_auto_merge_app (a write-capable GHTKN app) in config.toml.
@@ -112,10 +125,11 @@ async function queueLoop() {
 async function loop() {
   for (;;) {
     await monitorTick();
+    await deliveryTick();
     try {
-      stampLogs(ROOT);
+      ingestLogs(db, ROOT);
     } catch (e) {
-      console.error(`error: log stamp: ${(e as Error).message}`);
+      console.error(`error: db ingest: ${(e as Error).message}`);
     }
     await Bun.sleep(Number(args.interval) * 1000);
   }
@@ -128,7 +142,7 @@ function events(req: Request): Response {
   const stream = new ReadableStream({
     start(c) {
       timer = setInterval(() => {
-        const mtime = [args.ledger, AUTHORED_LEDGER, TASK_LEDGER].reduce((m, p) => m + (existsSync(p) ? statSync(p).mtimeMs : 0), 0);
+        const mtime = [args.ledger, AUTHORED_LEDGER, TASK_LEDGER].reduce((m, p) => m + store.mtime(p), 0);
         c.enqueue(mtime !== seen ? "data: changed\n\n" : ": ping\n\n");
         seen = mtime;
         if (syncState !== sentSync) c.enqueue(`event: sync\ndata: ${JSON.stringify(syncState)}\n\n`);
@@ -225,13 +239,13 @@ Bun.serve({
   routes: {
     "/api/rows": () => { try { return rows(); } catch (e) { return fail(e); } },
     "/api/queue": () => json({ limit: CONCURRENCY, jobs: Object.values(readQueue(ROOT)) }),
-    "/api/logs": () => { try { return json(readLogs(ROOT, readLedger(args.ledger))); } catch (e) { return fail(e); } },
+    "/api/logs": () => { try { ingestLogs(db, ROOT); return json(readLogs(ROOT, readLedger(args.ledger), db)); } catch (e) { return fail(e); } },
     "/api/events": events,
     "/api/decisions": () => { try { return json(pendingDecisions(readAuthored(), readDispatched(), readDecisions())); } catch (e) { return fail(e); } },
     "/api/decide": answer,
-    "/api/sync": forceSync,
     "/api/tasks": () => { try { const t = readTasks(); return json({ tasks: t, pending: pendingTasks(t) }); } catch (e) { return fail(e); } },
     "/api/tasks/decide": answerTask,
+    "/api/sync": forceSync,
   },
   fetch: (req) => asset(new URL(req.url).pathname),
 });

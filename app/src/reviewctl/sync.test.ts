@@ -58,6 +58,32 @@ describe("syncRows on GitHub stalls", () => {
       expect(rows.every((r) => r.status === "queued")).toBe(true);
     }
   });
+  it("treats GitHub rate limits and server-side failures as a workspace outage", () => {
+    for (const msg of [
+      "HTTP 403: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+      "HTTP 504: 504 Gateway Timeout (https://api.github.com/graphql)",
+      "HTTP 502: 502 Bad Gateway (https://api.github.com/graphql)",
+      'Post "https://api.github.com/graphql": dial tcp 1.2.3.4:443: i/o timeout',
+      "GraphQL: Something went wrong while executing your query on 2026-11-19T00:00:00Z.",
+      `Post "https://api.github.com/graphql": read tcp 10.0.0.1:5000->1.2.3.4:443: read: can't assign requested address`,
+    ]) {
+      const rows = [row(1), row(2)];
+      const viewer = () => {
+        throw new ReviewCtlError(msg);
+      };
+      expect(syncRows(rows, null, viewer).map((e) => e.event)).toEqual(["SYNC_UNAVAILABLE"]);
+      expect(rows.every((r) => r.status === "queued")).toBe(true);
+    }
+  });
+  it("auto-resumes rows errored by a secondary rate limit", () => {
+    const rows = [{ ...row(1), status: "error", last_error: "HTTP 403: You have exceeded a secondary rate limit." }];
+    let calls = 0;
+    syncRows(rows as never, null, () => {
+      calls++;
+      throw new ReviewCtlError("boom");
+    });
+    expect(calls).toBe(1);
+  });
   it("auto-resumes rows errored by a logged-out gh CLI", () => {
     const rows = [{ ...row(1), status: "error", last_error: "To get started with GitHub CLI, please run:  gh auth login" }];
     let calls = 0;
@@ -106,6 +132,12 @@ describe("monitorWithOutage", () => {
     let calls = 0;
     const r = monitorWithOutage({ error: down.error, last_probe_ms: 0 }, OUTAGE_PROBE_MS - 1, () => (calls++, []));
     expect(calls).toBe(0);
+    expect(r.events).toEqual([]);
+  });
+  it("silences the same outage when only timestamps differ", () => {
+    const a = { ...down, error: "Nov 20 09:01:02 ERR ghtkn failed version=1.2.3" };
+    const b = { ...down, error: "Nov 21 10:11:12 ERR ghtkn failed version=1.2.3" };
+    const r = monitorWithOutage({ error: a.error, last_probe_ms: 0 }, OUTAGE_PROBE_MS, () => [b]);
     expect(r.events).toEqual([]);
   });
   it("silences a repeated identical outage", () => {

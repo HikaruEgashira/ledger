@@ -1,6 +1,6 @@
 # Ledger intake schema
 
-`pull_requests.jsonl` contains one JSON object per in-scope PR. Trusted sync or
+`pull_requests.jsonl` (stored as a key in `review-factory.db`; read and write it only through `reviewctl`) contains one JSON object per in-scope PR. Trusted sync or
 exact-URL intake, separate from direct ledger editing, adds rows in this minimal
 form:
 

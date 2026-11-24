@@ -1,4 +1,5 @@
 import { org } from "../lib/org.ts";
+import * as store from "../lib/store.ts";
 import {
   existsSync,
   mkdirSync,
@@ -58,7 +59,8 @@ export const POST_MERGE_STATUSES = new Set([
   "recovered_monitoring",
   "completed",
 ]);
-export const ALL_STATUSES = new Set([...ACTIVE_STATUSES, "completed", "closed"]);
+// delivery_abandoned: merged but out of our delivery scope (not approved by us, or past the monitoring window).
+export const ALL_STATUSES = new Set([...ACTIVE_STATUSES, "completed", "closed", "delivery_abandoned"]);
 export const HUMAN_REASON_CODES = new Set([
   "required-human-identity",
   "business-risk-acceptance",
@@ -114,9 +116,10 @@ export function parsePrUrl(url: unknown): [string, number] {
 }
 
 export function readLedger(path: string): Obj[] {
-  if (!existsSync(path)) return [];
+  const text = store.readText(path);
+  if (text === null) return [];
   const rows: Obj[] = [];
-  readFileSync(path, "utf8")
+  text
     .split(/\r\n|\r|\n/)
     .forEach((raw, i) => {
       if (!raw.trim()) return;
@@ -146,13 +149,7 @@ export function serializeLedger(rows: Obj[]): string {
 }
 
 export function writeLedger(path: string, rows: Obj[]): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const temporary = join(
-    dirname(path),
-    `.tmp${process.pid}-${Math.random().toString(36).slice(2)}`,
-  );
-  writeFileSync(temporary, serializeLedger(rows), { mode: 0o600 });
-  renameSync(temporary, path);
+  store.writeText(path, serializeLedger(rows));
 }
 
 export function validateRow(row: unknown, where = "ledger row"): void {
@@ -1048,7 +1045,7 @@ export function applyLive(
     if (!("delivery" in row)) row.delivery = {};
     const delivery = row.delivery;
     const receipts = delivery.receipts ?? [];
-    if (row.status !== "completed")
+    if (row.status !== "completed" && row.status !== "delivery_abandoned")
       row.status = !isBlank(receipts)
         ? deriveDeliveryStatus(receipts)
         : POST_MERGE_STATUSES.has(row.status)
@@ -1091,7 +1088,7 @@ const syncError = (e: unknown): string | null => {
 
 // Credential or network outages are workspace-wide, not per-PR review work.
 const UNAVAILABLE_RE =
-  /ghtkn|error connecting to api\.github\.com|HTTP 401|TLS handshake timeout|unexpected EOF|connection reset|operation timed out|refresh token|Bad credentials|SAML enforcement|token's access was revoked|gh auth login|GH_TOKEN environment variable|ip-guard:|ipg_check|command not found/;
+  /ghtkn|error connecting to api\.github\.com|HTTP 401|TLS handshake timeout|unexpected EOF|connection reset|operation timed out|refresh token|Bad credentials|SAML enforcement|token's access was revoked|gh auth login|GH_TOKEN environment variable|ip-guard:|ipg_check|command not found|secondary rate limit|HTTP 50[234]|i\/o timeout|can't assign requested address|Something went wrong while executing your query/;
 
 export interface Outage {
   error: string;
@@ -1102,6 +1099,9 @@ export const OUTAGE_PROBE_MS = 60 * 1000;
 
 export const outageProbeDue = (outage: Outage | null, nowMs: number): boolean =>
   !outage || nowMs - outage.last_probe_ms >= OUTAGE_PROBE_MS;
+
+/** Volatile parts (timestamps, versions, addresses) must not make the same outage look new. */
+export const outageKey = (error: string): string => error.replace(/\d+/g, "#").replace(/\s+/g, " ").trim();
 
 /** Monitor-only outage gate: one SYNC_UNAVAILABLE per distinct outage, GitHub probes throttled while it lasts. */
 export function monitorWithOutage(
@@ -1114,7 +1114,7 @@ export function monitorWithOutage(
   const down = events.find((e) => e.event === "SYNC_UNAVAILABLE");
   if (!down) return { events, outage: null };
   const next = { error: String(down.error), last_probe_ms: nowMs };
-  return { events: outage?.error === next.error ? events.filter((e) => e !== down) : events, outage: next };
+  return { events: outage && outageKey(outage.error) === outageKey(next.error) ? events.filter((e) => e !== down) : events, outage: next };
 }
 
 export function syncRows(

@@ -27,13 +27,14 @@ const COLUMNS = [
   ["recovered_monitoring", "--accent"],
   ["completed", "--green"],
   ["closed", "--gray"],
+  ["delivery_abandoned", "--gray"],
   ["mine_review_requested", "--yellow"],
   ["mine_changes_requested", "--red"],
   ["mine_ready_to_merge", "--green"],
 ];
-const collapsed = new Set(["completed", "closed"]);
+const collapsed = new Set(["completed", "closed", "delivery_abandoned"]);
 const kinds = new Set<string>(JSON.parse(localStorage.getItem("kinds") ?? '["review","authored"]'));
-const state: { view: string; unit: Unit; author: string; level: LevelFilter; source: string; q: string; group: string; range: Range } = {
+const state: { view: string; unit: Unit; author: string; level: LevelFilter; source: string; q: string; group: string; range: Range; link: string } = {
   view: ["#dash", "#log", "#decide"].includes(location.hash) ? location.hash.slice(1) : "board",
   unit: "day",
   author: "",
@@ -42,6 +43,7 @@ const state: { view: string; unit: Unit; author: string; level: LevelFilter; sou
   range: "h",
   source: "",
   q: "",
+  link: "",
 };
 let last: Card[] = [];
 let logs: LogEntry[] = [];
@@ -95,6 +97,13 @@ function queueTag(r: Card): HTMLElement | null {
   if (q.attempts > 0 && q.next_at) return el("span", "tag warn", `retry ${q.attempts}/3 @ ${fmtJst(q.next_at).slice(11, 16)}`);
   return el("span", "tag", "waiting");
 }
+function showLogsFor(link: string) {
+  Object.assign(state, { view: "log", link, level: "all", range: "m", source: "", q: "" });
+  (document.getElementById("source") as HTMLSelectElement).value = "";
+  (document.getElementById("q") as HTMLInputElement).value = "";
+  history.replaceState(null, "", "#log");
+  render();
+}
 function renderBoard(rows: Card[]) {
   const known = new Set(COLUMNS.map((c) => c[0]));
   const extra = [...new Set(rows.map(column).filter((s) => !known.has(s)))].map((s) => [
@@ -125,12 +134,17 @@ function renderBoard(rows: Card[]) {
       const list = el("div", "cards");
       if (!collapsed.has(status))
         for (const r of items) {
-          const card = el("a", "card" + (r.queue?.state === "running" ? " running" : "") + (r.kind === "authored" ? " mine" : "")) as HTMLAnchorElement;
-          card.href = r.url;
-          card.target = "_blank";
-          card.rel = "noopener noreferrer";
+          const card = el("div", "card" + (r.queue?.state === "running" ? " running" : "") + (r.kind === "authored" ? " mine" : ""));
+          card.onclick = () => showLogsFor(r.url);
           const meta = el("div", "meta");
-          meta.append(el("span", "ref", r.pr_number ? `${r.repository.split("/")[1]}#${r.pr_number}` : r.repository));
+          const ref = el("span", "ref");
+          const link = el("a", null, r.pr_number ? `${r.repository.split("/")[1]}#${r.pr_number}` : r.repository) as HTMLAnchorElement;
+          link.href = r.url;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.onclick = (e) => e.stopPropagation();
+          ref.append(link);
+          meta.append(ref);
           if (r.author) meta.append(avatar(r.author));
           card.append(meta, el("div", "title", r.title ?? ""));
           const tags = el("div", "tags");
@@ -237,6 +251,17 @@ function flow(data: Point[]) {
   });
   return f.svg;
 }
+// Display names cover PRs, Jira issues and Slack threads alike; keys stay as stored.
+const LABEL: Record<string, string> = {
+  added: "intake",
+  approved: "agreed",
+  merged: "delivered",
+  done: "done",
+  responded: "their turn",
+  need_respond: "my turn",
+  open: "open",
+};
+const label = (k: string) => LABEL[k] ?? k;
 function legend(series: [string, string][]) {
   const l = el("span", "legend");
   for (const [k, c] of series) {
@@ -251,17 +276,6 @@ function legend(series: [string, string][]) {
 function renderDash(rows: Card[]) {
   const data = aggregate(rows, state.unit);
   const p1 = el("div", "panel");
-// Display names cover PRs, Jira issues and Slack threads alike; keys stay as stored.
-const LABEL: Record<string, string> = {
-  added: "intake",
-  approved: "agreed",
-  merged: "delivered",
-  done: "done",
-  responded: "their turn",
-  need_respond: "my turn",
-  open: "open",
-};
-const label = (k: string) => LABEL[k] ?? k;
   const h1 = el("h2", null, "cumulative flow");
   h1.append(legend([...[...STAGES].reverse(), ["open", "--text"]]));
   p1.append(h1, flow(data));
@@ -299,10 +313,10 @@ const JST = new Intl.DateTimeFormat("sv-SE", {
 const fmtJst = (ts: string | null) => (ts && !Number.isNaN(Date.parse(ts)) ? JST.format(new Date(ts)) : ts ?? "");
 function renderLog() {
   const filtered = filterLogs(logs, state);
-  const rows = state.group === "on" ? groupLogs(filtered) : filtered.map((e) => ({ ...e, count: 1, urls: e.url ? [e.url] : [] }));
+  const rows = state.group === "on" ? groupLogs(filtered) : filtered.map((e) => ({ ...e, count: 1 }));
   const table = el("table");
   const hr = el("tr");
-  for (const k of ["level", "source", "count", "latest (JST)", "PR", "message"]) hr.append(el("th", null, k));
+  for (const k of ["level", "source", "count", "latest (JST)", "links", "message"]) hr.append(el("th", null, k));
   table.append(hr);
   for (const e of rows.slice(0, 500)) {
     const tr = el("tr", e.level);
@@ -317,13 +331,22 @@ function renderLog() {
       a.style.display = "block";
       pr.append(a);
     }
-    if (e.urls.length > 5) pr.append(el("div", null, `+${e.urls.length - 5}`));
+    if (e.links.length > 5) pr.append(el("div", null, `+${e.links.length - 5}`));
     tr.append(pr, el("td", "msg", e.msg.length > 1200 ? e.msg.slice(0, 1200) + "…" : e.msg));
     table.append(tr);
   }
   const note = el("div", null, `${rows.length} rows (${filtered.length} / ${logs.length} entries)`);
   note.style.color = "var(--faint)";
   note.style.marginBottom = "8px";
+  if (state.link) {
+    const chip = el("button", null, `${linkLabel(state.link)} ×`);
+    chip.style.marginLeft = "8px";
+    chip.onclick = () => {
+      state.link = "";
+      render();
+    };
+    note.append(chip);
+  }
   document.getElementById("log")!.replaceChildren(note, table);
 }
 function syncSources() {
@@ -338,15 +361,6 @@ interface Pending {
   repository: string;
   pr_number: number;
   title: string;
-  if (state.link) {
-    const chip = el("button", null, `${linkLabel(state.link)} ×`);
-    chip.style.marginLeft = "8px";
-    chip.onclick = () => {
-      state.link = "";
-      render();
-    };
-    note.append(chip);
-  }
   reason: string;
   head: string;
   question: string;
@@ -439,7 +453,10 @@ for (const id of ["view", "unit", "level", "group", "range"] as const)
     else if (id === "level") state.level = v as LevelFilter;
     else if (id === "group") state.group = v;
     else if (id === "range") state.range = v as Range;
-    else state.view = v;
+    else {
+      state.view = v;
+      state.link = "";
+    }
     if (id === "view") history.replaceState(null, "", state.view === "board" ? "#" : `#${state.view}`);
     render();
   };
@@ -476,7 +493,7 @@ async function refreshLogs() {
   try {
     const res = await fetch("/api/logs", { cache: "no-store" });
     if (res.ok) {
-      logs = await res.json();
+      logs = ((await res.json()) as Parameters<typeof normalizeEntry>[0][]).map(normalizeEntry);
       syncSources();
       render();
     }

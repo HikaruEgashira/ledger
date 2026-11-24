@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 // Answer pending authored-PR questions that match past human answers, once human decisions settle for QUIET_MS.
+import * as store from "./lib/store.ts";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -67,16 +68,13 @@ export function watch(last: string | null, handled: string | null, now: number):
 }
 export function readHandled(ledger = AUTHORED_LEDGER): string | null {
   try {
-    return JSON.parse(readFileSync(statePath(ledger), "utf8")).handled ?? null;
+    return store.readJson<{ handled?: string }>(statePath(ledger), {}).handled ?? null;
   } catch {
     return null;
   }
 }
 export function writeHandled(ledger: string, handled: string): void {
-  mkdirSync(dirname(statePath(ledger)), { recursive: true });
-  const tmp = `${statePath(ledger)}.tmp-${process.pid}`;
-  writeFileSync(tmp, JSON.stringify({ handled }));
-  renameSync(tmp, statePath(ledger));
+  store.writeJson(statePath(ledger), { handled });
 }
 
 export function prompt(ex: Example[], pending: PendingDecision[], memory = ""): string {

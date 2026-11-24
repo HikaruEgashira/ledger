@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 // Sync the authenticated user's own open PRs into authored_prs.jsonl (separate from the review ledger).
+import * as store from "./lib/store.ts";
 import { appendFileSync, mkdirSync, renameSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -169,8 +170,7 @@ export function assertOrgReadable(res: any): void {
 }
 
 export function readAuthored(path = AUTHORED_LEDGER): AuthoredRow[] {
-  if (!existsSync(path)) return [];
-  return readFileSync(path, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+  return (store.readText(path) ?? "").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
 }
 
 function writeAuthored(path: string, rows: AuthoredRow[]): void {
@@ -204,11 +204,7 @@ export interface Dispatch {
   options?: string[];
 }
 export function readDispatched(path = AUTHORED_LEDGER): Record<string, Dispatch> {
-  try {
-    return JSON.parse(readFileSync(dispatchPath(path), "utf8"));
-  } catch {
-    return {};
-  }
+  return store.readJson(dispatchPath(path), {});
 }
 
 export const isDispatched = (row: AuthoredRow, d: ReturnType<typeof readDispatched>) => d[row.url]?.head === row.head_sha;
@@ -249,7 +245,7 @@ export const RETRY = "Retry";
 const decisionPath = (ledger: string) => join(dirname(ledger), "logs", "authored-decisions.json");
 export function readDecisions(path = AUTHORED_LEDGER): Decisions {
   try {
-    return JSON.parse(readFileSync(decisionPath(path), "utf8"));
+    return store.readJson(decisionPath(path), {});
   } catch {
     return {};
   }
@@ -262,16 +258,13 @@ export interface HistoryEntry extends Decision {
 }
 export function readHistory(path = AUTHORED_LEDGER): HistoryEntry[] {
   try {
-    return readFileSync(historyPath(path), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    return (store.readText(historyPath(path)) ?? "").split("\n").filter(Boolean).map((l) => JSON.parse(l));
   } catch {
     return [];
   }
 }
 function writeJson(file: string, body: unknown): void {
-  mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(body, null, 1));
-  renameSync(tmp, file);
+  store.writeJson(file, body, 1);
 }
 
 export interface PendingDecision {
@@ -324,8 +317,7 @@ export function decide(path: string, url: string, head: string, choice: string, 
   const a: Decision = { head, question: q.reason, choice, at: new Date().toISOString(), by };
   dec[url] = a;
   writeJson(decisionPath(path), dec);
-  mkdirSync(dirname(historyPath(path)), { recursive: true });
-  appendFileSync(historyPath(path), JSON.stringify({ ...a, url, options: allowed }) + "\n");
+  store.appendText(historyPath(path), JSON.stringify({ ...a, url, options: allowed }) + "\n");
   if (choice !== HOLD) {
     delete d[url];
     writeJson(dispatchPath(path), d);
@@ -423,11 +415,7 @@ export function stackPlan(row: AuthoredRow, all: AuthoredRow[]): StackPlan {
 // Heads whose enable attempt failed (e.g. auto-merge disallowed); retried only after a new push.
 const failedPath = (ledger: string) => join(dirname(ledger), "logs", "authored-auto-merge-failed.json");
 function readFailed(ledger: string): Record<string, string> {
-  try {
-    return JSON.parse(readFileSync(failedPath(ledger), "utf8"));
-  } catch {
-    return {};
-  }
+  return store.readJson(failedPath(ledger), {});
 }
 
 function gh(args: string[]): string {
@@ -539,8 +527,7 @@ function merge(path: string, urls: string[], yes: boolean): number {
     }
   }
   if (yes) {
-    mkdirSync(dirname(failedPath(path)), { recursive: true });
-    writeFileSync(failedPath(path), JSON.stringify(failedHeads, null, 1));
+    store.writeJson(failedPath(path), failedHeads, 1);
   }
   return failed ? 1 : 0;
 }

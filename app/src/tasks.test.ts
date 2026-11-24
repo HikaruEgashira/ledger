@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { advance, idFromUrl, taskCard, LOOKBACK_MS, merge, readWatermark, pendingTasks, settled, taskTargets, validate, type Incoming, type TaskRow } from "./tasks.ts";
+import { advance, idFromUrl, keywordPlan, taskCard, LOOKBACK_MS, merge, readWatermark, pendingTasks, settled, taskTargets, validate, type Incoming, type TaskRow } from "./tasks.ts";
 
 const I = (o: Partial<Incoming> = {}): Incoming => ({
   id: "jira:PROJ-1",
@@ -81,5 +81,16 @@ describe("human hold", () => {
     expect(r.ball).toBe("human");
     expect(r.question).toBe("q");
     expect(r.activity).toBe("2");
+  });
+});
+
+describe("keyword rotation", () => {
+  it("picks the least recently searched keywords and bounds the window to 24h", () => {
+    const now = Date.parse("2026-11-24T12:00:00Z");
+    const plan = keywordPlan(["a", "b", "c", "d"], { a: "2026-11-24T11:00:00Z", b: "2026-11-20T00:00:00Z" }, now, 2);
+    expect(plan.map((p) => p.q)).toEqual(["c", "d"]);
+    expect(plan[0]!.after).toBe("2026-11-23T12:00:00.000Z");
+    const next = keywordPlan(["a", "b", "c", "d"], { a: "2026-11-24T11:00:00Z", b: "2026-11-20T00:00:00Z", c: "2026-11-24T12:00:00Z", d: "2026-11-24T12:00:00Z" }, now, 2);
+    expect(next).toEqual([{ q: "b", after: "2026-11-23T12:00:00.000Z" }, { q: "a", after: "2026-11-24T11:00:00.000Z" }]);
   });
 });

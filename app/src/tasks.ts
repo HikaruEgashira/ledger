@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 // Slack/Jira tasks as an event inbox (tasks.jsonl) on the same queue as PRs: review = they asked me, respond = I asked them.
+import * as store from "./lib/store.ts";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { BATCH, oneShot, workerCommand } from "./lib/worker.ts";
-
 import { localConfig } from "./lib/org.ts";
 import { linkKey } from "../webui/logfilter.ts";
+
 const ROOT = resolve(import.meta.dir, "../..");
 export const TASK_LEDGER = join(ROOT, "tasks.jsonl");
 export const SYNC_SKILL = "skills/sync-tasks/SKILL.md";
@@ -45,14 +46,11 @@ const ID_RE = /^(slack:[A-Z0-9]+:\d+\.\d+|jira:[A-Z][A-Z0-9]+-\d+)$/;
 const URL_RE = /^https:\/\/[a-z0-9.-]+\.(slack\.com|atlassian\.net)\//;
 
 export function readTasks(path = TASK_LEDGER): TaskRow[] {
-  if (!existsSync(path)) return [];
-  return readFileSync(path, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+  return (store.readText(path) ?? "").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
 }
 function writeTasks(path: string, rows: TaskRow[]): void {
-  const tmp = join(dirname(path), `.tmp-tasks-${process.pid}`);
   rows.sort((a, b) => a.id.localeCompare(b.id));
-  writeFileSync(tmp, rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""), { mode: 0o600 });
-  renameSync(tmp, path);
+  store.writeText(path, rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""));
 }
 
 export interface Incoming {
@@ -68,10 +66,8 @@ export interface Incoming {
 }
 /** The id is derived from the URL, so DLP masking of a raw ts in agent output cannot corrupt the dedupe key. */
 export function idFromUrl(url: string): string | null {
-  const s = /\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})(?:\?(?:.*&)?thread_ts=(\d+\.\d+))?/.exec(url);
-  if (s) return `slack:${s[1]}:${s[4] ?? `${s[2]}.${s[3]}`}`;
-  const j = /\/browse\/([A-Z][A-Z0-9]+-\d+)(?:$|[?#/])/.exec(url);
-  return j ? `jira:${j[1]}` : null;
+  const k = linkKey(url);
+  return k === url ? null : k;
 }
 
 export function validate(x: any): Incoming {
@@ -90,13 +86,13 @@ export function merge(rows: TaskRow[], incoming: Incoming[], now: string): { row
   const by = new Map(rows.map((r) => [r.id, r]));
   const changed: string[] = [];
   for (const i of incoming) {
-    } else if (old.activity !== i.activity && old.ball === "human" && !old.answer) {
-      // A pending question waits for the human; new activity is context for the answer, not a reason to act alone.
-      by.set(i.id, { ...old, activity: i.activity, title: i.title, synced_at: now });
-      changed.push(i.id);
     const old = by.get(i.id);
     if (!old) {
       by.set(i.id, { ...i, intake_at: now, synced_at: now });
+      changed.push(i.id);
+    } else if (old.activity !== i.activity && old.ball === "human" && !old.answer) {
+      // A pending question waits for the human; new activity is context for the answer, not a reason to act alone.
+      by.set(i.id, { ...old, activity: i.activity, title: i.title, synced_at: now });
       changed.push(i.id);
     } else if (old.activity !== i.activity) {
       // A new message is the counterpart moving: drop a stale question and follow-up timer.
@@ -176,8 +172,7 @@ export function decideTask(path: string, id: string, choice: string, custom = fa
     const c = choice.trim();
     if (custom ? !c || c.length > 2000 : !allowed.includes(c)) throw new Error(`invalid choice: ${c.slice(0, 80)}`);
     const answer = { choice: c, at: new Date().toISOString(), by };
-    mkdirSync(dirname(historyPath(path)), { recursive: true });
-    appendFileSync(historyPath(path), JSON.stringify({ id, question: r.question, options: allowed, ...answer }) + "\n");
+    store.appendText(historyPath(path), JSON.stringify({ id, question: r.question, options: allowed, ...answer }) + "\n");
     return { ...r, answer };
   });
 }
@@ -185,12 +180,29 @@ export function decideTask(path: string, id: string, choice: string, custom = fa
 /** Ball left the worker: anything but mine, or an answered question still unconsumed counts as not done. */
 export const settled = (r: TaskRow | undefined) => !r || (r.ball !== "mine" && r.ball !== "triage" && !(r.ball === "human" && r.answer && r.answer.choice !== HOLD));
 
+// Keyword searches rotate: a few per run, each only since its own last search, to stay under Slack search rate limits.
+export const KEYWORDS_PER_RUN = 3;
+const keywordStatePath = (ledger: string) => join(dirname(ledger), "logs", "task-sync-keywords.json");
+export function keywordPlan(keywords: string[], last: Record<string, string>, now = Date.now(), perRun = KEYWORDS_PER_RUN): { q: string; after: string }[] {
+  const floor = now - 86_400_000;
+  const at = (k: string) => Date.parse(last[k] ?? "") || 0;
+  return [...keywords]
+    .sort((a, b) => at(a) - at(b))
+    .slice(0, perRun)
+    .map((q) => ({ q, after: new Date(Math.max(at(q), floor)).toISOString() }));
+}
+function markKeywords(ledger: string, searched: string[], now = new Date().toISOString()): void {
+  const state = store.readJson<Record<string, string>>(keywordStatePath(ledger), {});
+  for (const k of searched) state[k] = now;
+  store.writeJson(keywordStatePath(ledger), state);
+}
+
 // Slack coverage watermark: each run scans only from here, so a run never has to cover 14 days of with:me at once.
 export const LOOKBACK_MS = 14 * 86_400_000;
 const watermarkPath = (ledger: string) => join(dirname(ledger), "logs", "task-sync-watermark.json");
 export function readWatermark(ledger: string, now = Date.now()): string {
   try {
-    const at = JSON.parse(readFileSync(watermarkPath(ledger), "utf8")).slack_covered_until;
+    const at = store.readJson<{ slack_covered_until?: string }>(watermarkPath(ledger), {}).slack_covered_until ?? "";
     if (Date.parse(at) > now - LOOKBACK_MS) return at;
   } catch {}
   return new Date(now - LOOKBACK_MS).toISOString();
@@ -201,8 +213,7 @@ export function advance(ledger: string, until: string, now = Date.now()): string
   if (Number.isNaN(t) || t > now + 60_000) throw new Error(`invalid --slack-covered-until: ${until}`);
   const cur = readWatermark(ledger, now);
   if (t <= Date.parse(cur)) return cur;
-  mkdirSync(dirname(watermarkPath(ledger)), { recursive: true });
-  writeFileSync(watermarkPath(ledger), JSON.stringify({ slack_covered_until: until }));
+  store.writeJson(watermarkPath(ledger), { slack_covered_until: until });
   return until;
 }
 
@@ -213,7 +224,8 @@ function sync(path: string): number {
   const recent = new Date(Date.now() - 86_400_000).toISOString();
   // Extra Slack search terms (own names, watched topics) live in config, not in the published skill.
   const kw: string[] = (localConfig().task_slack_keywords ?? []).filter((k: unknown) => typeof k === "string" && k.trim());
-  const keywords = kw.length ? ` Slack keywords: ${JSON.stringify(kw)}.` : "";
+  const plan = keywordPlan(kw, store.readJson<Record<string, string>>(keywordStatePath(path), {}));
+  const keywords = plan.length ? ` Slack keyword searches this run: ${JSON.stringify(plan)}.` : "";
   const prompt = `Read ${SYNC_SKILL} and follow it exactly once, then exit. Slack recent window starts at ${recent}; backfill window starts at ${since}.${keywords}`;
   const r = Bun.spawnSync(oneShot(workerCommand(), prompt, BATCH), { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, TASK_LEDGER: path } });
   return r.exitCode ?? 1;
@@ -232,6 +244,7 @@ if (import.meta.main) {
       choice: { type: "string" },
       custom: { type: "boolean", default: false },
       "slack-covered-until": { type: "string" },
+      "keywords-searched": { type: "string" },
       axis: { type: "string" },
       title: { type: "string" },
     },
@@ -240,7 +253,7 @@ if (import.meta.main) {
   const [cmd = "list", id] = p;
   const need = ["record", "dispatch", "check", "decide", "show"];
   if (!["sync", "upsert", "list", ...need].includes(cmd) || (need.includes(cmd) && !id)) {
-    console.error("usage: tasks.ts {sync|upsert [--slack-covered-until ISO] <JSONL|list|show ID|record ID --ball B [--axis A] [--title T] [--follow-up ISO] [--note T]|dispatch ID --reason T [--option T]...|decide ID --choice T|check ID}");
+    console.error("usage: tasks.ts {sync|upsert [--slack-covered-until ISO] [--keywords-searched JSON] <JSONL|list|show ID|record ID --ball B [--axis A] [--title T] [--follow-up ISO] [--note T]|dispatch ID --reason T [--option T]...|decide ID --choice T|check ID}");
     process.exit(2);
   }
   if (cmd === "sync") process.exit(sync(path));
@@ -251,6 +264,11 @@ if (import.meta.main) {
     const { rows, changed } = merge(readTasks(path), incoming, now);
     writeTasks(path, rows);
     for (const c of changed) console.log(`changed\t${c}`);
+    if (v["keywords-searched"]) {
+      const ks = JSON.parse(v["keywords-searched"]);
+      if (!Array.isArray(ks) || ks.some((k) => typeof k !== "string")) throw new Error("--keywords-searched must be a JSON array of strings");
+      markKeywords(path, ks);
+    }
     if (v["slack-covered-until"]) console.log(`slack-covered-until\t${advance(path, v["slack-covered-until"])}`);
     process.exit(0);
   }

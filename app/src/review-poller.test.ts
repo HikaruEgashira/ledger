@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import * as store from "./lib/store.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
@@ -62,7 +63,7 @@ describe("poll", () => {
     const out = poll({ ...base(root), gh, enqueue: () => true, now: new Date("2026-11-03T00:00:00Z") });
     expect(out).toBe(`{"full":true,"open":2,"queued":["${url(2)}"]}`);
     expect(calls[0].some((a) => a.includes("updated:"))).toBe(false);
-    expect(readFileSync(join(root, "logs/review-poller/last_full_sweep.txt"), "utf8")).toBe("2026-11-03T00:00:00.000+00:00");
+    expect(store.readText(join(root, "logs/review-poller/last_full_sweep.txt"))).toBe("2026-11-03T00:00:00.000+00:00");
   });
 
   it("full sweep re-enqueues stale PRs known to state but absent from the ledger", () => {
@@ -89,8 +90,8 @@ describe("poll", () => {
     expect(out).toBe(`{"full":false,"open":3,"queued":["${url(2)}"]}`);
     expect(calls[0]).toContain(`q=repo:${ORG}/repo -author:me is:pr is:open archived:false updated:>=2026-11-03T00:05:00Z`);
     expect(calls[1].slice(-2)).toEqual(["-f", "cursor=c1"]);
-    expect(JSON.parse(readFileSync(join(dir, "heads.json"), "utf8"))).toEqual({ [url(1)]: "h1", [url(9)]: "h9", [url(2)]: "h2" });
-    expect(readFileSync(join(dir, "last_poll.txt"), "utf8")).toBe("2026-11-03T00:10:00.123456+00:00");
+    expect(JSON.parse(store.readText(join(dir, "heads.json"))!)).toEqual({ [url(1)]: "h1", [url(9)]: "h9", [url(2)]: "h2" });
+    expect(store.readText(join(dir, "last_poll.txt"))).toBe("2026-11-03T00:10:00.123456+00:00");
   });
 
   it("dry-run reports changes without writing state", () => {

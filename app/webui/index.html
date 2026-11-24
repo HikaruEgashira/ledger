@@ -204,8 +204,18 @@
         font-size: 12px;
         margin-bottom: 4px;
       }
+      .card {
+        cursor: pointer;
+      }
       .card .meta .ref {
         flex: 1;
+      }
+      .card .meta .ref a {
+        color: inherit;
+      }
+      .card .meta .ref a:hover {
+        color: var(--blue);
+        text-decoration: underline;
       }
       .card .title {
         color: var(--text);

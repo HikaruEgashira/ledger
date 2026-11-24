@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 // Poll open PRs in configured review scopes via GraphQL and trigger ledger review on new heads.
+import * as store from "./lib/store.ts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { CONFIG_TOML, escapeRe, localConfig, org } from "./lib/org.ts";
@@ -100,8 +101,7 @@ const sinceStamp = (cursor: string) =>
 
 const ledgerUrls = (root: string): Set<string> => {
   const p = join(root, "pull_requests.jsonl");
-  if (!existsSync(p)) return new Set();
-  return new Set(readFileSync(p, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l).url));
+  return new Set((store.readText(p) ?? "").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l).url));
 };
 
 export type PollOpts = { root?: string; dryRun?: boolean; full?: boolean; gh?: Gh; enqueue?: Enqueue; now?: Date; config?: Record<string, any>; orgName?: string };
@@ -114,12 +114,12 @@ export function poll(opts: PollOpts = {}): string {
   const sweep = join(dir, "last_full_sweep.txt");
   const orgName = opts.orgName ?? org();
   mkdirSync(dir, { recursive: true });
-  const previous: Record<string, string> = existsSync(state) ? JSON.parse(readFileSync(state, "utf8")) : {};
+  const previous: Record<string, string> = store.readJson(state, {});
   const started = opts.now ?? new Date();
-  const lastFull = existsSync(sweep) ? Date.parse(readFileSync(sweep, "utf8").trim().replace(/(\.\d{3})\d+/, "$1")) : NaN;
+  const lastFull = store.exists(sweep) ? Date.parse(store.readText(sweep)!.trim().replace(/(\.\d{3})\d+/, "$1")) : NaN;
   // Full sweeps catch PRs never updated since a scope was added or the poller was down.
-  const full = opts.full || opts.dryRun || !existsSync(cursor) || !(started.getTime() - lastFull < FULL_SWEEP_MS);
-  const since = full ? null : sinceStamp(readFileSync(cursor, "utf8"));
+  const full = opts.full || opts.dryRun || !store.exists(cursor) || !(started.getTime() - lastFull < FULL_SWEEP_MS);
+  const since = full ? null : sinceStamp(store.readText(cursor)!);
   const config = opts.config ?? localConfig(join(root, "config/config.toml"));
   const scopes = loadScopes(config, root, orgName, join(root, "config/config.toml"));
   const current = fetchOpenPrs(scopes, since, opts.gh, orgName);
@@ -134,10 +134,10 @@ export function poll(opts: PollOpts = {}): string {
   const queued = changed.filter((u) => enqueue(u, current.get(u)![1]));
   // Failed intakes stay out of state so the next poll retries them.
   const failed = new Set(changed.filter((u) => !queued.includes(u)));
-  writeFileSync(state, JSON.stringify({ ...previous, ...heads(failed) }, null, 2));
+  store.writeJson(state, { ...previous, ...heads(failed) }, 2);
   if (!failed.size) {
-    writeFileSync(cursor, isoUtc(started));
-    if (full) writeFileSync(sweep, isoUtc(started));
+    store.writeText(cursor, isoUtc(started));
+    if (full) store.writeText(sweep, isoUtc(started));
   }
   // Worker dispatch, retries and concurrency live in reviewctl serve (app/src/queue.ts).
   return stableStringify({ full, open: current.size, queued });
