@@ -58,6 +58,18 @@ Slack: reply in thread, never in channel root. No apology/agreement openers.
 
 Private conversations are draft-only: when the thread is in a private channel, DM or group DM, never call `slack_send_message`; write the reply with `slack_send_message_draft` (same thread) then hand it over with `tasks.ts dispatch <ID> --reason "下書き済み: 確認して送信してください" --option "送信した"`. Public channels may be posted directly.
 
+## Changes as pull requests
+
+When the request is a code or configuration change (add an allowlist entry, fix a rule, bump a setting) that is within the user's role and whose intent is settled in the thread or issue, make it a pull request instead of only replying:
+
+1. Work in `respond-workspaces/<owner>/<repo>-task-<short id>` (gitignored): clone the repository there, branch from the default branch, never touch the read-only `repositories/` checkouts.
+2. Make the smallest change that does what was agreed, following the repository's own instructions (CLAUDE.md/AGENTS.md, CODEOWNERS, PR template). Narrow anything broad (an IP range, a permission) to what the evidence supports, and say so in the PR.
+3. Commit with the repository's normal signing and push with a normal non-force push to the new branch. If signing or authentication fails, dispatch; never bypass it.
+4. Open the PR as the user (`GHTKN_APP=<org>/write gh pr create`), body in Japanese with the request's links (thread, Jira), and apply the labels and reviewers the repository and the user's instructions require.
+5. Reply in the thread / comment on the issue with the PR link, `link` the PR to this task, and record `theirs` with a follow-up.
+
+The PR then lives in the own-PR ledger like any other; do not review or merge it here. When the change needs a choice the thread did not settle (which range, which repo, whether at all), dispatch with concrete options instead.
+
 ## Defer to the human
 
 Dispatch instead of acting when the reply needs a decision only the user can make (commitment, priority, people, money, policy), an irreversible action, data whose security level forbids the destination, or you are unsure what is asked:
