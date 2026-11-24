@@ -27,6 +27,9 @@ export interface Posted {
 }
 export type State = Record<string, Posted>;
 
+/** New DMs per run; a backlog drains over several runs instead of flooding the DM at once. */
+export const POST_PER_RUN = 5;
+
 const hash = (s: string) => new Bun.CryptoHasher("sha1").update(s).digest("hex").slice(0, 12);
 
 export function openDecisions(): Open[] {
@@ -82,7 +85,7 @@ function writeState(state: State, path = STATE): void {
 export function plan(open: Open[], state: State): { post: Open[]; watch: (Open & Posted)[]; stale: string[] } {
   const keys = new Set(open.map((o) => o.key));
   return {
-    post: open.filter((o) => !state[o.key]),
+    post: open.filter((o) => !state[o.key]).slice(0, POST_PER_RUN),
     watch: open.filter((o) => state[o.key]).map((o) => ({ ...o, ...state[o.key]! })),
     stale: Object.keys(state).filter((k) => !keys.has(k)),
   };
