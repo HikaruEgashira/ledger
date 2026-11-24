@@ -87,6 +87,15 @@ export function validate(x: any): Incoming {
 /** Default follow-up for a request intake already finds waiting on its counterpart. */
 export const FOLLOW_UP_MS = 2 * 86_400_000;
 
+/** Activity only moves forward: a run that happens to see an older hit of the thread is not new work. */
+export function newer(next: string, prev: string): boolean {
+  const a = Date.parse(next), b = Date.parse(prev);
+  if (!Number.isNaN(a) && !Number.isNaN(b)) return a > b;
+  const x = Number(next), y = Number(prev); // Slack ts
+  if (Number.isFinite(x) && Number.isFinite(y)) return x > y;
+  return next !== prev;
+}
+
 export function merge(rows: TaskRow[], incoming: Incoming[], now: string): { rows: TaskRow[]; changed: string[] } {
   const by = new Map(rows.map((r) => [r.id, r]));
   const changed: string[] = [];
@@ -97,11 +106,11 @@ export function merge(rows: TaskRow[], incoming: Incoming[], now: string): { row
       const follow = i.ball === "theirs" ? { follow_up_at: new Date(Date.parse(now) + FOLLOW_UP_MS).toISOString() } : {};
       by.set(i.id, { ...i, ...follow, intake_at: now, synced_at: now });
       changed.push(i.id);
-    } else if (old.activity !== i.activity && old.ball === "human" && !old.answer) {
+    } else if (newer(i.activity, old.activity) && old.ball === "human" && !old.answer) {
       // A pending question waits for the human; new activity is context for the answer, not a reason to act alone.
       by.set(i.id, { ...old, activity: i.activity, title: i.title, synced_at: now });
       changed.push(i.id);
-    } else if (old.activity !== i.activity) {
+    } else if (newer(i.activity, old.activity)) {
       // A new message is the counterpart moving: drop a stale question and follow-up timer.
       by.set(i.id, { ...old, ...i, question: undefined, options: undefined, answer: undefined, follow_up_at: undefined, synced_at: now });
       changed.push(i.id);

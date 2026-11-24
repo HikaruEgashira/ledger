@@ -126,3 +126,11 @@ describe("groups", () => {
     expect(taskTargets(rows).map((t) => t.url)).toEqual(["jira:PSIRT-1"]);
   });
 });
+
+describe("monotonic activity", () => {
+  it("ignores an older activity seen by a later run", () => {
+    const base = { ...merge([], [I({ activity: "2026-11-24T08:00:00Z" })], "2026-11-24T08:00:00Z").rows[0]!, ball: "done" as const };
+    expect(merge([base], [I({ activity: "2026-11-24T07:00:00Z", ball: "triage" })], "2026-11-24T09:00:00Z").rows[0]!.ball).toBe("done");
+    expect(merge([base], [I({ activity: "2026-11-24T09:00:00Z", ball: "triage" })], "2026-11-24T09:00:00Z").rows[0]!.ball).toBe("triage");
+  });
+});
