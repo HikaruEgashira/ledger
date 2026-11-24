@@ -109,29 +109,9 @@ approval. Label each remaining item as `code change required`, `CI failed`,
 CodeRabbit-owned fine-grained feedback, and requests to add tests when direct
 execution already passed. Do not repeat review history merely to show work.
 
-## 重要アクションのDM通知
+## DM通知
 
-Guarded approval、changes request、withdrawal、human dispatch、release/recovery
-receipt、または completion の結果は、完了をライブで確認した直後に、ユーザー本人
-（`config/config.toml` の `notify_slack_user`）へSlack DMで1行だけ通知する。必ず対象PRの完全なURLを含め、
-日本語で結果と次に必要な作業だけを書く。経緯、ツール出力、挨拶、複数行の要約は
-書かない。状態が変わらない監視結果や、まだ実行していない判断はDM対象外とする
-（保留判断は下の「保留判断のDM通知」に従う）。
-
-DMの対象URLと動詞は、同じライブ実行の検証済みreceiptから取得する。別PRの
-直前コンテキストやdelegation要約から補完しない。receiptが対象URL、実行済みaction、
-確認結果をすべて示さない場合はDMを送らない。
-
-例: `https://github.com/<org>/example/pull/123 を承認しました。CI成功・未解決コメントなしを確認済みです。`
-
-### 保留判断のDM通知
-
-承認も変更依頼も出さず、他PRのapply・merge待ちなど作者以外の対応を待つ保留
-（`wait_ci` を含む）と新たに判断したときも、判断を記録した直後に同じ宛先へ1行
-DMする。対象PRと待ち先PRの完全なURL、保留理由、再開条件だけを日本語で書く。
-同じ保留理由が続くだけの再確認は、新しい証拠が出るまでDM対象外とする。
-
-例: `https://github.com/<org>/example/pull/123 は指摘解消済みですが、https://github.com/<org>/example/pull/124 のapply待ちでplanが失敗しているため承認を保留中です。124のmerge・apply後に再確認します。`
+ユーザー本人へのSlack DMは判断（decide）専用で、`app/src/decide-dm.ts` が送る。このスキルからは承認・変更依頼・保留・完了などの結果をDMしない。
 
 ## Author-facing review messages
 

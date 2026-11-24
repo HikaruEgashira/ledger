@@ -85,9 +85,7 @@ dashboard's decide tab: one question plus 2-4 concrete, mutually exclusive
 options, each an action you can carry out as written (e.g. "Pin to a commit SHA",
 "Keep the floating tag"). Do not add close/hold/retry; the page always offers them.
 
-1. Send one Slack DM to `notify_slack_user` in `config/config.toml`: the full PR
-   URL and the question, in Japanese, one line.
-2. Record it so the queue stops retrying this head:
+Record it so the queue stops retrying this head (`app/src/decide-dm.ts` posts the question to the user's DM and reads the reply; do not DM yourself):
 
    ```sh
    bun app/src/authored-prs.ts dispatch <URL> --reason "<question>" --option "<A>" --option "<B>"
