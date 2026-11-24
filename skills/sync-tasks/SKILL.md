@@ -15,24 +15,10 @@ Resolve the authenticated user once per run: Slack user via the Slack MCP user p
 
 Two axes, mirroring GitHub review requests vs. own PRs:
 
-- `review` axis: someone asked me. Jira issues assigned to me that are not Done.
-- `respond` axis: I asked someone. Jira issues I reported that are not Done, excluding ones created by automation (reporter is me but created via API/automation rule, bot templates, or labels the team uses for auto-generated tickets; when unsure, skip).
-
-### Slack: pick up with `with:me`, then judge from context
-
-1. Candidates: `slack_search_public_and_private` with `with:me after:<14 days ago>`, `sort: timestamp`, `include_bots: true`, default `channel_types` (DMs and group DMs included). One call returns at most 20: follow `cursor` until no next page; never stop at page 1. Group by thread root. Do not judge from search hits alone.
-2. For each thread, investigate before classifying: read the whole thread (`slack_read_thread`), and when the root is a bot or a reply references something else, read the surrounding channel messages and the linked Jira issue / PR / other thread.
-3. Decide who asked whom from the substance, not from who posted or who was mentioned:
-   - Intake bots (ticket bots such as sashikomi-kun, workflow forms) post "Hello @me, the issue was created" when **I** filed the request: that is `respond` (I asked them), even though the bot mentions me.
-   - A mention of me inside someone else's question is `review`; my cc/mention of others on my own request is still `respond`.
-   - A request addressed to a group or "誰か" counts the same as a named one.
-4. When a thread is the Slack side of a Jira issue (link or issue key in the thread), emit only the Jira task and put the thread URL in its `summary`; one request is one task.
+- `review` axis: someone asked me. Slack threads where a message from someone else asks me to do, decide, check or answer something (mention or not: DM, my channel, thread I am in). Jira issues assigned to me that are not Done.
+- `respond` axis: I asked someone. Slack threads where my message asks someone (named or not) for something. Jira issues I reported that are not Done, excluding ones created by automation (reporter is me but created via API/automation rule, bot templates, or labels the team uses for auto-generated tickets; when unsure, skip).
 
 Skip threads that are announcements, FYIs, or already resolved by a later message.
-
-Benchmark: a sashikomi-kun intake thread that says "Hello @me, OPS2-xxxx has been created", followed by my cc to a colleague, is my request to SRE → `respond`, merged into `jira:OPS2-xxxx`.
-
-For Jira, "reported by me" also covers issues an intake bot created on my behalf (reporter is the bot, but the request text or the Slack intake thread shows I filed it).
 
 ## Ball
 
