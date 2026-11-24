@@ -53,7 +53,7 @@ No new reply: do nothing.
 
 ## Update
 
-For each `update` item (its source changed since the thread last reported it): read what changed in the source (`url` and its linked items: new comments, pushes, CI, status, new Slack replies) and reply in the thread with `slack_send_message` (`thread_ts` = `ts`): `【状況更新】` plus one or two lines of what changed and whether it affects the options, with related links as short labels. Then:
+For each `update` item (its source changed since the thread last reported it): read what changed in the source (`url` and its linked items: new comments, pushes, CI, status, new Slack replies) and reply in the thread with `slack_send_message` (`thread_ts` = `ts`): a bold first line (`**状況が変わりました**`) plus one or two lines of what changed and whether it affects the options, with related links as short labels. Then:
 
 ```sh
 bun app/src/decide-dm.ts updated '<key>'
@@ -61,7 +61,7 @@ bun app/src/decide-dm.ts updated '<key>'
 
 ## Remind
 
-For each `remind` item still unanswered after Watch, reply in its thread with `slack_send_message` (`thread_ts` = `ts`, `reply_broadcast: true` so it surfaces in the DM): `【催促】判断待ちです（<経過時間>）` plus the question in one line and any deadline from the source. Then:
+For each `remind` item still unanswered after Watch, reply in its thread with `slack_send_message` (`thread_ts` = `ts`, `reply_broadcast: true` so it surfaces in the DM): a bold first line (`**判断待ちです（<経過時間>）**`) plus the question in one line and any deadline from the source. Then:
 
 ```sh
 bun app/src/decide-dm.ts reminded '<key>'
