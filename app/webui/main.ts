@@ -7,7 +7,7 @@ import {
   type Point,
   type Unit,
 } from "./dashboard.ts";
-import { countErrors, filterLogs, groupLogs, inRange, type LevelFilter, type LogEntry, type Range } from "./logfilter.ts";
+import { countErrors, filterLogs, groupLogs, inRange, linkLabel, normalizeEntry, type LevelFilter, type LogEntry, type Range } from "./logfilter.ts";
 
 const COLUMNS = [
   ["queued", "--gray"],
@@ -226,7 +226,7 @@ function flow(data: Point[]) {
       cross.setAttribute("visibility", "visible");
       showTip(e, d.label, [
         ["open", "--text", d.open],
-        ...[...STAGES].reverse().map(([k, c]): [string, string, number] => [k, c, d.stage[k]]),
+        ...[...STAGES].reverse().map(([k, c]): [string, string, number] => [label(k), c, d.stage[k]]),
       ]);
     };
     hit.onmouseleave = () => {
@@ -243,7 +243,7 @@ function legend(series: [string, string][]) {
     const s = el("span");
     const sw = el("span", "sw");
     sw.style.background = `var(${c})`;
-    s.append(sw, k);
+    s.append(sw, label(k));
     l.append(s);
   }
   return l;
@@ -251,13 +251,24 @@ function legend(series: [string, string][]) {
 function renderDash(rows: Card[]) {
   const data = aggregate(rows, state.unit);
   const p1 = el("div", "panel");
+// Display names cover PRs, Jira issues and Slack threads alike; keys stay as stored.
+const LABEL: Record<string, string> = {
+  added: "intake",
+  approved: "agreed",
+  merged: "delivered",
+  done: "done",
+  responded: "their turn",
+  need_respond: "my turn",
+  open: "open",
+};
+const label = (k: string) => LABEL[k] ?? k;
   const h1 = el("h2", null, "cumulative flow");
   h1.append(legend([...[...STAGES].reverse(), ["open", "--text"]]));
   p1.append(h1, flow(data));
   const p3 = el("div", "panel");
   const table = el("table");
   const hr = el("tr");
-  for (const k of ["", "open", ...SERIES.map((s) => s[0])]) hr.append(el("th", null, k));
+  for (const k of ["", "open", ...SERIES.map((s) => s[0])]) hr.append(el("th", null, label(k)));
   table.append(hr);
   for (const d of [...data].reverse()) {
     const tr = el("tr");
@@ -297,8 +308,8 @@ function renderLog() {
     const tr = el("tr", e.level);
     tr.append(el("td", "nowrap lv", e.level), el("td", "nowrap", e.source), el("td", "nowrap", e.count), el("td", "nowrap", fmtJst(e.ts)));
     const pr = el("td", "nowrap");
-    for (const u of e.urls.slice(0, 5)) {
-      const a = el("a", null, u.replace(/^https:\/\/github\.com\/[^/]+\//, "")) as HTMLAnchorElement;
+    for (const u of e.links.slice(0, 5)) {
+      const a = el("a", null, linkLabel(u)) as HTMLAnchorElement;
       a.href = u;
       a.target = "_blank";
       a.rel = "noopener";
@@ -327,6 +338,15 @@ interface Pending {
   repository: string;
   pr_number: number;
   title: string;
+  if (state.link) {
+    const chip = el("button", null, `${linkLabel(state.link)} ×`);
+    chip.style.marginLeft = "8px";
+    chip.onclick = () => {
+      state.link = "";
+      render();
+    };
+    note.append(chip);
+  }
   reason: string;
   head: string;
   question: string;
