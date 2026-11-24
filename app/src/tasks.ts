@@ -203,7 +203,9 @@ export function advance(ledger: string, until: string, now = Date.now()): string
 function sync(path: string): number {
   // Slack/Jira are reachable only through the worker's MCP connectors; the skill pipes results into `upsert`.
   const since = readWatermark(path);
-  const prompt = `Read ${SYNC_SKILL} and follow it exactly once, then exit. Slack window starts at ${since}.`;
+  // Recent activity first every run, so today's requests never wait behind the backfill.
+  const recent = new Date(Date.now() - 86_400_000).toISOString();
+  const prompt = `Read ${SYNC_SKILL} and follow it exactly once, then exit. Slack recent window starts at ${recent}; backfill window starts at ${since}.`;
   const r = Bun.spawnSync(oneShot(workerCommand(), prompt, BATCH), { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, TASK_LEDGER: path } });
   return r.exitCode ?? 1;
 }

@@ -24,9 +24,11 @@ Jira: issues assigned to me (`review`) and issues I requested (`respond`) that a
 
 Slack is managed per thread, the same way PRs and Jira issues are: this run only discovers threads and their latest activity; a worker per thread reads and judges it (like a PR review).
 
-1. `slack_search_public_and_private` with `with:me after:<window start date>` (the prompt gives the window start), `sort: timestamp`, `sort_dir: asc`, `include_bots: true`, `response_format: concise`, default `channel_types`. Follow `cursor` to the last page.
+1. Two passes with `slack_search_public_and_private` (`with:me`, `include_bots: true`, `response_format: concise`, default `channel_types`), following `cursor` to the last page:
+   - recent: `after:<recent window start date>`, `sort: timestamp`, newest first. Always run this pass in full first.
+   - backfill: `after:<backfill window start date>`, `sort: timestamp`, `sort_dir: asc`, as far as the run allows.
 2. Group hits by thread root. For each thread emit `ball: "triage"`, `axis: "review"` (placeholder; the worker sets the real axis), `title` from the hit text, `url` = thread root permalink, `activity` = ISO time of the newest hit in that thread.
-3. Do not read threads or classify here. Pass `--slack-covered-until <ISO of the newest hit you emitted>` to `upsert`.
+3. Do not read threads or classify here. Pass `--slack-covered-until <ISO of the newest backfill hit you emitted>` to `upsert` (the recent pass does not move it).
 
 Threads already known keep their state while `activity` is unchanged; new activity sends them back to triage.
 
