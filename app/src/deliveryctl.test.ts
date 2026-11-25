@@ -114,6 +114,15 @@ describe("deliveryctl", () => {
     expect(out).toEqual([]);
   });
 
+  it("abandons an old delivery whose plan correction file is gone", () => {
+    seed("github-actions", A, "post_release_monitoring", 4 * 24 * 60);
+    const rows = readLedger(ledger);
+    rows[0].delivery.plan_correction = { path: "delivery-artifacts/missing.json", sha256: "0".repeat(64) };
+    writeLedger(ledger, rows);
+    expect(run("due", "--auto")).toBe(0);
+    expect(readLedger(ledger)[0].status).toBe("delivery_abandoned");
+  });
+
   it("keeps an old recovering delivery for a human", () => {
     seed("github-actions", A, "recovering", 4 * 24 * 60);
     expect(run("due", "--auto")).toBe(0);

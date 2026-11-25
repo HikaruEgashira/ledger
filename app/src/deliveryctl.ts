@@ -504,17 +504,18 @@ function commandDueAuto(args: Args): void {
       abandon(args.ledger, row.url, "merged without an approved delivery plan");
       continue;
     }
+    // Checked before plan() so a row whose plan can no longer be read still leaves the funnel.
+    if (givenUp(row)) {
+      // An open incident still needs a human; anything else past the window leaves the funnel.
+      if (row.status === "recovering") blockerUnchanged(args.ledger, row.url, GAVE_UP);
+      else abandon(args.ledger, row.url, GAVE_UP);
+      continue;
+    }
     try {
       const p = plan(row);
       mode = p.release.mode;
       if (mode === "not_applicable" && row.status === "merged_waiting_release") {
         commandComplete({ ledger: args.ledger, url: row.url } as Args);
-        continue;
-      }
-      if (givenUp(row)) {
-        // An open incident still needs a human; anything else past the window leaves the funnel.
-        if (row.status === "recovering") blockerUnchanged(args.ledger, row.url, GAVE_UP);
-        else abandon(args.ledger, row.url, GAVE_UP);
         continue;
       }
       if (
