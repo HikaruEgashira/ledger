@@ -111,7 +111,7 @@ export function parsePrUrl(url: unknown): [string, number] {
   const m = typeof url === "string" ? PR_URL_RE.exec(url) : null;
   if (!m?.groups) throw new ReviewCtlError(`invalid GitHub pull request URL: ${url}`);
   if (m.groups.owner !== org())
-    throw new ReviewCtlError(`this workspace is restricted to ${org()} pull requests`);
+    throw new ReviewCtlError(`this agent is restricted to ${org()} pull requests`);
   return [`${m.groups.owner}/${m.groups.repo}`, Number(m.groups.number)];
 }
 
@@ -1105,7 +1105,7 @@ const syncError = (e: unknown): string | null => {
   return null;
 };
 
-// Credential or network outages are workspace-wide, not per-PR review work.
+// Credential or network outages are agent-wide, not per-PR review work.
 const UNAVAILABLE_RE =
   /ghtkn|error connecting to api\.github\.com|HTTP 401|TLS handshake timeout|unexpected EOF|connection reset|operation timed out|refresh token|Bad credentials|SAML enforcement|token's access was revoked|gh auth login|GH_TOKEN environment variable|(?:ip|vpn)-guard:|(?:ipg|vpng)_check|command not found|secondary rate limit|HTTP 50[234]|i\/o timeout|can't assign requested address|Something went wrong while executing your query/;
 

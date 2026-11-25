@@ -30,7 +30,7 @@ The PR title and description are the intent. Read them first, then the diff.
 Every change you make must stay inside that intent. Do not edit the description
 to make a drifting change fit.
 
-## Workspace
+## Working copy
 
 Work in a dedicated clone or worktree of the PR head branch under
 `respond-workspaces/<owner>/<repo>-<number>` (gitignored). Never use the

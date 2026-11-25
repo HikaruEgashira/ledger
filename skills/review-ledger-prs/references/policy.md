@@ -116,7 +116,7 @@ When verified recovery evidence makes a forward-fix PR safer than a revert,
 implement and publish the smallest root-cause remediation without separate user
 confirmation. Never push to, amend, or force-push the reviewed PR's head
 branch. Use a new branch and separate PR from a normal implementation checkout
-outside this review workspace, with a signed commit and the repository's normal
+outside this agent's checkout, with a signed commit and the repository's normal
 authenticated non-force push path. Stop on signing or authentication failure;
 do not bypass either requirement. Request review from the live author of the
 original ledger PR. Add the new exact URL through trusted exact-URL intake.

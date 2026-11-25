@@ -59,7 +59,7 @@ authenticated login's latest review as `DISMISSED` (stale after a push), so
 reviews posted outside the ledger still get re-reviewed. These rows use
 `intake.mode: "dismissed-own-review"` and carry no `review_request`.
 
-The workspace's trusted exact-URL intake is `$add-review-ledger-prs`. It accepts
+The agent's trusted exact-URL intake is `$add-review-ledger-prs`. It accepts
 a live-verified exact URL already present in the current task context or in
 live evidence from a listed PR, without separate user confirmation, and
 records:

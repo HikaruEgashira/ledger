@@ -41,7 +41,7 @@ export function parsePrUrl(url: string): [string, number] {
   const m = PR_URL_RE.exec(url);
   if (!m?.groups) throw new LedgerError(`invalid GitHub pull request URL: ${url}`);
   if (m.groups.owner !== org())
-    throw new LedgerError(`this workspace is restricted to ${org()} pull requests`);
+    throw new LedgerError(`this agent is restricted to ${org()} pull requests`);
   return [`${m.groups.owner}/${m.groups.repo}`, Number(m.groups.number)];
 }
 

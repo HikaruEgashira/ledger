@@ -10,7 +10,7 @@ export function localConfig(path = CONFIG_TOML): Record<string, any> {
 
 let cached: string | undefined;
 
-// GitHub org this workspace is restricted to: $REVIEW_ORG, else org in config.toml.
+// GitHub org this agent is restricted to: $REVIEW_ORG, else org in config.toml.
 export function org(): string {
   if (cached) return cached;
   const value = process.env.REVIEW_ORG || localConfig().org;

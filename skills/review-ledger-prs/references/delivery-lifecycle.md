@@ -178,7 +178,7 @@ not cover unrelated cleanup or any human-only recovery boundary.
 1. Resolve the original ledger PR's author from live GitHub metadata. Do not
    infer it from commits, CODEOWNERS, or stale evidence.
 2. Never push to, amend, or force-push the reviewed PR's head branch. Use a
-   normal implementation checkout outside this review workspace, create a new
+   normal implementation checkout outside this agent's checkout, create a new
    branch, read the repository instructions, make the smallest root-cause fix,
    add a regression check, and run proportionate verification.
 3. Create a signed commit and publish a separate remediation PR through the

@@ -1,6 +1,6 @@
 ---
 name: add-review-ledger-prs
-description: Add live-verified exact <org> pull request URLs to this workspace's pull_requests.jsonl review ledger. Use when an exact PR URL is supplied by the user or appears in the current review, release, or recovery evidence. No separate user confirmation is required for intake. Never use it to expand a search, author, label, repository, wildcard, or other candidate set, retarget an existing row, or bulk-import results.
+description: Add live-verified exact <org> pull request URLs to the agent's pull_requests.jsonl review ledger. Use when an exact PR URL is supplied by the user or appears in the current review, release, or recovery evidence. No separate user confirmation is required for intake. Never use it to expand a search, author, label, repository, wildcard, or other candidate set, retarget an existing row, or bulk-import results.
 ---
 
 # Add review ledger PRs

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Trusted exact-URL intake for the review-ledger-prs workspace.
+// Trusted exact-URL intake for the agent's review ledger.
 import { type Program, runProgram } from "./lib/cli.ts";
 import {
   type Micros,

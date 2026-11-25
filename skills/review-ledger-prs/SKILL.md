@@ -1,6 +1,6 @@
 ---
 name: review-ledger-prs
-description: Strictly review, approve, request changes on, withdraw an erroneous current change request, minimally dispatch, and operate the full merge-to-release lifecycle for <org> pull requests listed in this workspace's pull_requests.jsonl ledger. Use whenever an agent processes the review queue, corrects its current review, re-reviews a changed PR, monitors CI or review transitions, follows a merge into release, performs post-release health monitoring, recovers a regression, closes the delivery with verified receipts, or keeps recurring ledger monitoring alive in the current Codex session with a sleep interval.
+description: Strictly review, approve, request changes on, withdraw an erroneous current change request, minimally dispatch, and operate the full merge-to-release lifecycle for <org> pull requests listed in the agent's pull_requests.jsonl ledger. Use whenever an agent processes the review queue, corrects its current review, re-reviews a changed PR, monitors CI or review transitions, follows a merge into release, performs post-release health monitoring, recovers a regression, closes the delivery with verified receipts, or keeps recurring ledger monitoring alive in the current Codex session with a sleep interval.
 ---
 
 # Review ledger PRs
@@ -14,15 +14,15 @@ directly and may add an exact URL only through trusted intake. Read
 [references/delivery-lifecycle.md](references/delivery-lifecycle.md) before
 acting on a merged PR. Merge is not a completion state.
 
-This is a review-only workspace. Never push commits, branches, tags, or other
+Reviewing is review-only. Never push commits, branches, tags, or other
 code/ref changes to a remote repository, including for a listed pull request.
 Do not run `git push` or an equivalent remote-code mutation. Guarded,
 ledger-scoped review metadata writes remain allowed.
 
 When verified recovery evidence requires a code or configuration change, never
 push to, amend, or force-push the reviewed PR's head branch. Without separate
-user confirmation, use a normal implementation checkout outside this review
-workspace to create a new branch and a separate forward-fix PR containing the
+user confirmation, use a normal implementation checkout outside this
+agent's checkout to create a new branch and a separate forward-fix PR containing the
 smallest root-cause remediation. Use a signed commit and the repository's
 normal authenticated non-force push path; stop rather than bypass signing or
 authentication failure. Add the exact remediation PR URL through
@@ -349,7 +349,7 @@ Process every emitted `BASE_CHANGED`, `HEAD_CHANGED`, `PR_UPDATED`,
 `CI_PENDING`, `CI_FAILED`, `CI_INVALIDATED_DECISION`,
 `REVIEW_INVALIDATED_DECISION`, `CHANGES_REQUESTED`, `APPROVAL_CANDIDATE`,
 `MERGED`, `CLOSED`, or `SYNC_FAILED` event in the same run. `SYNC_UNAVAILABLE`
-is a workspace-wide credential or network outage: do not start per-PR work;
+is an agent-wide credential or network outage: do not start per-PR work;
 ask the user to restore access (e.g. `ghtkn agent unlock`) and wait. The monitor emits it once per distinct outage and re-probes every 10 minutes, so silence means the outage persists. A
 `SYNC_FAILED` is emitted once per new error, so silence means no new work.
 Never expose deterministic gate or classification logic in author-facing
