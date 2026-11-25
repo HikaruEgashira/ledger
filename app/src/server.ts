@@ -242,6 +242,14 @@ async function asset(pathname: string): Promise<Response> {
   return new Response(file, { headers: HEADERS });
 }
 
+// Another instance already holds the port (launchd KeepAlive + manual start): wait for it instead of crash-looping.
+for (let logged = false; ; ) {
+  const probe = await fetch(`http://${args.host}:${args.port}/api/queue`).catch(() => null);
+  if (!probe) break;
+  if (!logged) console.error(`port ${args.port} is already served; waiting for it to be released`);
+  logged = true;
+  await Bun.sleep(60_000);
+}
 Bun.serve({
   hostname: args.host,
   port: Number(args.port),

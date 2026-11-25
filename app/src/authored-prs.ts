@@ -140,7 +140,7 @@ export function toRow(n: any, now: string): AuthoredRow {
 function graphql(args: string[]): any {
   const cmd = ["gh", "api", "graphql", ...args];
   let r = exec(cmd, { timeoutMs: 120_000 });
-  for (let i = 0; r.code !== 0 && i < 5 && (r.timedOut || /HTTP 5\d\d|timeout/i.test(r.stderr)); i++) {
+  for (let i = 0; r.code !== 0 && i < 5 && (r.timedOut || /HTTP 5\d\d|timeout|unexpected end of JSON/i.test(r.stderr)); i++) {
     Bun.sleepSync(2 ** i * 1000);
     r = exec(cmd, { timeoutMs: 120_000 });
   }

@@ -97,7 +97,7 @@ export function alerts(root: string, rows: readonly LedgerRowLike[], now = new D
       out.push({ source: "alert", level: "error", ts: j.finished_at ?? now, links: [j.url], msg: `queue retry exhausted (${j.attempts}/${MAX_RETRIES}); waiting for a new head or another worker to succeed` });
   for (const r of rows)
     if (r.last_error)
-      out.push({ source: "alert", level: "error", ts: r.last_synced_at ?? now, links: [r.url], msg: `ledger last_error: ${JSON.stringify(r.last_error)}` });
+      out.push({ source: "alert", level: r.status === "delivery_abandoned" || /delivery monitoring gave up/.test(r.last_error) ? "info" : "error", ts: r.last_error_at ?? r.last_synced_at ?? now, links: [r.url], msg: `ledger last_error: ${JSON.stringify(r.last_error)}` });
   return out;
 }
 

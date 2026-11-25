@@ -148,8 +148,27 @@ export function serializeLedger(rows: Obj[]): string {
     .join("");
 }
 
+const ANSI = /\u001b\[[0-9;]*[A-Za-z]/g;
+
+/** Strips terminal colour from last_error and stamps last_error_at whenever the error text changes. */
 export function writeLedger(path: string, rows: Obj[]): void {
-  store.writeText(path, serializeLedger(rows));
+  store.updateText(path, (body) => {
+    const before = new Map<string, unknown>();
+    for (const line of (body ?? "").split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const r = JSON.parse(line);
+        before.set(r.url, r.last_error ?? null);
+      } catch {}
+    }
+    const now = timestamp();
+    for (const row of rows) {
+      if (typeof row.last_error === "string") row.last_error = row.last_error.replace(ANSI, "");
+      if (!row.last_error) delete row.last_error_at;
+      else if (before.get(row.url) !== row.last_error || !row.last_error_at) row.last_error_at = now;
+    }
+    return serializeLedger(rows);
+  });
 }
 
 export function validateRow(row: unknown, where = "ledger row"): void {
