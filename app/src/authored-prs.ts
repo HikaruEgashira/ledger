@@ -424,7 +424,7 @@ function gh(args: string[]): string {
     Bun.sleepSync(2 ** i * 1000);
     r = exec(["gh", ...args], { timeoutMs: 120_000 });
   }
-  if (r.code !== 0) throw new Error(`gh ${args[0]} failed${r.timedOut ? " (timeout)" : ""}: ${r.stderr.split("\n").filter((l) => !/WRN|ipg_check|agent-guard/.test(l)).join(" ").trim()}`);
+  if (r.code !== 0) throw new Error(`gh ${args[0]} failed${r.timedOut ? " (timeout)" : ""}: ${r.stderr.split("\n").filter((l) => !/WRN|(?:ipg|vpng)_check|agent-guard/.test(l)).join(" ").trim()}`);
   return r.stdout;
 }
 
@@ -484,7 +484,7 @@ function merge(path: string, urls: string[], yes: boolean): number {
           timeoutMs: 600_000,
           env: { ...process.env, GH_REPO: row.repository },
         });
-        if (r.code !== 0) throw new Error(`gh stack merge failed: ${r.stderr.split("\n").filter((l) => !/WRN|ipg_check|agent-guard/.test(l)).join(" ").trim()}`);
+        if (r.code !== 0) throw new Error(`gh stack merge failed: ${r.stderr.split("\n").filter((l) => !/WRN|(?:ipg|vpng)_check|agent-guard/.test(l)).join(" ").trim()}`);
         console.log(`merged-stack\t${row.url}\t${c.method}\t${nums}`);
       } catch (e) {
         console.log(`fail\t${row.url}\t${(e as Error).message}`);

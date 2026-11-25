@@ -1107,7 +1107,7 @@ const syncError = (e: unknown): string | null => {
 
 // Credential or network outages are workspace-wide, not per-PR review work.
 const UNAVAILABLE_RE =
-  /ghtkn|error connecting to api\.github\.com|HTTP 401|TLS handshake timeout|unexpected EOF|connection reset|operation timed out|refresh token|Bad credentials|SAML enforcement|token's access was revoked|gh auth login|GH_TOKEN environment variable|ip-guard:|ipg_check|command not found|secondary rate limit|HTTP 50[234]|i\/o timeout|can't assign requested address|Something went wrong while executing your query/;
+  /ghtkn|error connecting to api\.github\.com|HTTP 401|TLS handshake timeout|unexpected EOF|connection reset|operation timed out|refresh token|Bad credentials|SAML enforcement|token's access was revoked|gh auth login|GH_TOKEN environment variable|(?:ip|vpn)-guard:|(?:ipg|vpng)_check|command not found|secondary rate limit|HTTP 50[234]|i\/o timeout|can't assign requested address|Something went wrong while executing your query/;
 
 export interface Outage {
   error: string;

@@ -5,7 +5,7 @@ import { filterLogs, normalizeEntry } from "../webui/logfilter.ts";
 describe("logs", () => {
   it("classifies guard and sandbox failures as errors", () => {
     expect(classify("gh:1: command not found: _ipg_check")).toBe("error");
-    expect(classify("ip-guard: 現在のIP は社内IPではないため gh pr を停止しました")).toBe("error");
+    expect(classify("vpn-guard: Prisma Access 未接続のため gh pr を停止しました")).toBe("error");
     expect(classify('{"open": 0, "queued": []}')).toBe("info");
   });
   it("marks FAILED events as errors and extracts the PR url", () => {

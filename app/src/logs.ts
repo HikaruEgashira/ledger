@@ -10,7 +10,7 @@ type LedgerRowLike = Record<string, any>;
 
 const MAX_RETRIES = 3;
 const ERROR_RE =
-  /\b(error|failed|failure|traceback|exception|timeout|halted)\b|command not found|ip-guard:|deny network-outbound|HTTP 5\d\d|gh auth login/i;
+  /\b(error|failed|failure|traceback|exception|timeout|halted)\b|command not found|(?:ip|vpn)-guard:|deny network-outbound|HTTP 5\d\d|gh auth login/i;
 const WARN_RE = /\bwarn(ing)?\b|CI_FAILED|retry/i;
 
 export const SOURCES: Record<string, string> = {
@@ -61,7 +61,7 @@ export function parseWorker(lines: string[], fallback: (i: number) => string | n
     for (const c of o.message?.content ?? []) {
       if (c?.type !== "tool_result") continue;
       const text = typeof c.content === "string" ? c.content : JSON.stringify(c.content ?? "");
-      const hit = text.match(/command not found[^\n]*|ip-guard:[^\n]*|deny network-outbound [^\s]+/);
+      const hit = text.match(/command not found[^\n]*|(?:ip|vpn)-guard:[^\n]*|deny network-outbound [^\s]+/);
       if (hit) {
         const e = entry("worker", hit[0], o.timestamp ?? fallback(i));
         e.links = started.get(o.session_id) ?? [];
