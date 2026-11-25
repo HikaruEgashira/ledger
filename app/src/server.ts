@@ -4,7 +4,7 @@ import * as store from "./lib/store.ts";
 import { join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { readLedger, toCard } from "./ledger.ts";
-import { AUTHORED_LEDGER, authoredTargets, CLOSE, decide, pendingDecisions, readAuthored, readDecisions, readDispatched } from "./authored-prs.ts";
+import { AUTHORED_LEDGER, authoredTargets, CLOSE, decide, escalateStuck, pendingDecisions, readAuthored, readDecisions, readDispatched } from "./authored-prs.ts";
 import { examples, readHandled, watch, writeHandled } from "./auto-decide.ts";
 import { localConfig } from "./lib/org.ts";
 import type { Card } from "../webui/dashboard.ts";
@@ -112,6 +112,7 @@ async function queueLoop() {
   for (;;) {
     try {
       tick(ROOT, readLedger(args.ledger), Date.now(), RESPOND ? authoredTargets(readAuthored(), readDispatched(), readDecisions()) : [], TASKS ? taskTargets(readTasks()) : []);
+      if (RESPOND) for (const u of escalateStuck(AUTHORED_LEDGER, readQueue(ROOT))) console.log(`escalated\t${u}`);
       failures = 0;
     } catch (e) {
       console.error(`error: queue tick: ${(e as Error).message}`);

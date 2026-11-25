@@ -96,7 +96,9 @@ Record it so the queue stops retrying this head (`app/src/decide-dm.ts` posts th
 Before anything else, run `bun app/src/authored-prs.ts decision <URL>`. If it
 prints a decision for the current head, the human answered your earlier question:
 carry out `choice` as the answer (it may be a free-text instruction instead of one
-of your options) and do not dispatch the same question again.
+of your options) and do not dispatch the same question again. If the choice
+cannot be carried out (e.g. no network), dispatch a new question naming the
+blocker; never exit leaving the PR on your side undispatched.
 `Retry` means retry with a fresh look; dispatch again only for a new question.
 
 ## Never

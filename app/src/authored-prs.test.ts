@@ -136,3 +136,16 @@ test("stackPlan merges stacked PRs only together from the top", () => {
   expect(stackPlan(c, [...all, pr(4, "b", "d")])).toMatchObject({ kind: "skip", reason: "stack branches (not linear)" });
   expect(stackPlan({ ...a, base_ref: undefined }, [a]).kind).toBe("skip");
 });
+
+import { escalateStuck } from "./authored-prs.ts";
+test("escalateStuck hands an exhausted own PR to a human once", () => {
+  const dir = mkdtempSync(pj(tmpdir(), "esc-"));
+  const ledger = pj(dir, "authored_prs.jsonl");
+  md(pj(dir, "logs"));
+  wf(ledger, JSON.stringify(arow({ url: "u", head_sha: "h", reason: "conflicting" })) + "\n");
+  const job = { url: "u", kind: "authored" as const, scope: "authored", head: "h", updated: "x", priority: 60, state: "exhausted" as const, attempts: 3, enqueued_at: "" };
+  expect(escalateStuck(ledger, { u: { ...job, state: "done" } })).toEqual([]);
+  expect(escalateStuck(ledger, { u: job })).toEqual(["u"]);
+  expect(readDispatched(ledger).u.reason).toContain("conflicting");
+  expect(escalateStuck(ledger, { u: job })).toEqual([]);
+});
