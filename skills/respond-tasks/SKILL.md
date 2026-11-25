@@ -59,6 +59,17 @@ Slack: reply in thread, never in channel root. No apology/agreement openers.
 
 Private conversations are draft-only: when the thread is in a private channel, DM or group DM, never call `slack_send_message`; write the reply with `slack_send_message_draft` (same thread) then hand it over with `tasks.ts dispatch <ID> --reason "下書き済み: 確認して送信してください" --option "送信した"`. Public channels may be posted directly.
 
+## Pull requests belong to the PR ledgers
+
+Ledgers live in SQLite, not in files; never grep `pull_requests.jsonl` or `authored_prs.jsonl` (they may not exist). To see whether a PR is already tracked:
+
+```sh
+bun app/src/reviewctl/cli.ts list | rg '<PR URL>'      # review ledger (PRs I review)
+bun app/src/authored-prs.ts list --all | rg '<PR URL>'  # my own PRs
+```
+
+A tracked PR is handled there: record this task `done` with that note. A PR addressed to me that is not tracked is an intake gap: report it in `--note`, do not dispatch it.
+
 ## Changes as pull requests
 
 When the request is a code or configuration change (add an allowlist entry, fix a rule, bump a setting) that is within the user's role and whose intent is settled in the thread or issue, make it a pull request instead of only replying:
