@@ -17,7 +17,7 @@
 		<key>REVIEWCTL_GH</key>
 		<string>@HOME@/bin/gh</string>
 		<key>PATH</key>
-		<string>@HOME@/bin:@HOME@/.local/bin:@HOME@/.local/share/aquaproj-aqua/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<string>@HOME@/.cache/vpn-guard/bin:@HOME@/bin:@HOME@/.local/bin:@HOME@/.local/share/aquaproj-aqua/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
 		<key>XDG_CACHE_HOME</key>
 		<string>@HOME@/ghq/.cache</string>
 	</dict>
