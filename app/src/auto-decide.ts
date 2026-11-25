@@ -17,6 +17,7 @@ import {
   type PendingDecision,
 } from "./authored-prs.ts";
 import { localConfig } from "./lib/org.ts";
+import { historyPath as taskHistoryPath, TASK_LEDGER } from "./tasks.ts";
 import { exec } from "./lib/util.ts";
 import { BATCH, oneShot, workerCommand } from "./lib/worker.ts";
 
@@ -50,7 +51,13 @@ export function examples(ledger = AUTHORED_LEDGER): { examples: Example[]; last:
   const seen = new Set<string>();
   const out: (Example & { at: string })[] = [];
   const legacy = Object.entries(readDecisions(ledger)).map(([url, d]) => ({ ...d, url, options: [] as string[] }));
-  for (const h of [...readHistory(ledger), ...legacy]) {
+  // Slack/Jira task answers teach the same memory as own-PR answers.
+  const tasks = (store.readText(taskHistoryPath(ledger === AUTHORED_LEDGER ? TASK_LEDGER : ledger)) ?? "")
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l))
+    .map((h: any) => ({ ...h, url: h.id }));
+  for (const h of [...readHistory(ledger), ...legacy, ...tasks]) {
     if (h.by === "auto" || h.choice === HOLD || seen.has(h.url + h.at)) continue;
     seen.add(h.url + h.at);
     out.push({ question: h.question, choice: h.choice, options: h.options, at: h.at });

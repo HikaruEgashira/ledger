@@ -30,7 +30,8 @@ Slack is managed per thread, the same way PRs and Jira issues are: this run only
    - keywords: the prompt lists this run's keyword searches as `{q, after}` (rotated by `tasks.ts` to respect Slack search rate limits; never search other keywords). One search each: `q` as given (no `with:me`), `after:<date of after>`, `sort: timestamp` newest first, `include_context: false`, `response_format: detailed`; stop paginating at the first hit older than `after`, and at 2 pages at most. A keyword hit is a candidate like a `with:me` hit; triage decides whether it concerns me. Report the ones you ran with `--keywords-searched '<JSON array of q>'` on `upsert`.
 2. Skip my DM with myself (notes and my own automation reports), and relay notifications whose source item already has its own inbox here (GitHub PR events: the PR ledgers own them). Keep other bot/app DMs: alerts and notices there can need my action.
 3. Group hits by thread root. For each thread emit `ball: "triage"`, `axis: "review"` (placeholder; the worker sets the real axis), `title` from the hit text, `url` = thread root permalink, `activity` = ISO time of the newest hit in that thread.
-4. Do not read threads or classify here. Pass `--slack-covered-until <ISO of the newest backfill hit you emitted>` to `upsert` (the recent pass does not move it).
+4. Skip what `logs/decision-memory.md` says the human never wants as a task (kinds of bot reminders and notices, for example); judge from the hit's sender and text only.
+5. Do not read threads or classify here. Pass `--slack-covered-until <ISO of the newest backfill hit you emitted>` to `upsert` (the recent pass does not move it).
 
 Threads already known keep their state while `activity` is unchanged; new activity sends them back to triage.
 

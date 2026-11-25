@@ -46,8 +46,9 @@ A `triage` task is a Slack thread with new activity that nobody has judged yet. 
 1. Read the whole thread and follow what it points to (surrounding messages, linked issues, PRs, threads) until the request is clear.
 2. Axis = who originated the request, judged from the substance. Who posted, who is mentioned, or which tool relayed it does not decide it; a message posted by a bot or tool on someone's behalf is that person's.
 3. One request is one task: link the places it lives (see "One request, one group") instead of closing them separately.
-4. No open request (announcement, FYI, resolved): `record <ID> --ball done --note "<why>"`.
-5. Otherwise set the axis and a one-line title, then act below in the same run: `record <ID> --ball mine --axis <review|respond> --title "<request>"`.
+4. My reactions count as replies: a request I reacted to (✅, :done:, :ok: and the like) is acknowledged. Before treating anything as open, check whether it was already settled elsewhere (linked PR merged, LGTM written in the doc, reply or button pressed in the source).
+5. No open request (announcement, FYI, resolved): `record <ID> --ball done --note "<why>"`.
+6. Otherwise set the axis and a one-line title, then act below in the same run: `record <ID> --ball mine --axis <review|respond> --title "<request>"`.
 
 ## Act, by axis
 
