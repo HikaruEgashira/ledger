@@ -1,6 +1,6 @@
 # Ledger-driven review workspace
 
-自分宛てのレビュー依頼、自分の PR、Slack スレッドと Jira チケットを 1 つの台帳で受け、agent が「自分の番」のものを片付け続けるワークスペースです。人に残すのは、ポリシー上 agent が決めてはいけない判断だけです。
+自分宛てのレビュー依頼、自分の PR、業務ツール（Slack、Jira など）のスレッドやチケットを 1 つの台帳で受け、agent が「自分の番」のものを片付け続けるワークスペースです。人に残すのは、ポリシー上 agent が決めてはいけない判断だけです。
 
 PR の完了条件は承認やマージではありません。レビュー時に決めたリリース計画どおりにデプロイされ、監視時間を通して健全だったことを証跡として残した時点で完了です。
 
@@ -21,7 +21,7 @@ flowchart LR
   subgraph intake["受け取る"]
     rr["自分宛てのレビュー依頼"]
     own["自分の PR"]
-    sj["Slack スレッド / Jira チケット"]
+    sj["業務ツールのスレッド / チケット<br/>（MCP 経由）"]
   end
   intake --> ledger[("台帳")]
   ledger --> queue["queue"]
@@ -57,6 +57,10 @@ flowchart LR
 
 スクリーンショットはデモデータです（`bun app/src/demo.ts`）。
 
+## 業務ツールをつなぐ
+
+業務ツールは MCP サーバー経由で扱い、ツールごとの接続定義を `skills/sources/<name>/SOURCE.md` に置きます。定義には、URL から項目を識別する規則と、worker がそのツールで依頼を集めて返信する手順を書きます。Slack と Jira が同梱されていて、ディレクトリを足せば別のツールも同じ台帳・queue・判断の流れに乗ります。
+
 ## セットアップ
 
 端末・組織固有の値は gitignore 済みの `config/` に置きます。
@@ -67,7 +71,7 @@ cp config/config.example.toml config/config.toml
 scripts/install-launchd.sh
 ```
 
-launchd が依頼の同期、Slack / Jira の同期、判断の DM、`serve`（queue と画面）を定期実行します。`config.toml` で稼働時間帯を指定できます。
+launchd が依頼の同期、業務ツールの同期、判断の DM、`serve`（queue と画面）を定期実行します。`config.toml` で稼働時間帯を指定できます。
 
 ## 詳細
 
@@ -75,5 +79,5 @@ launchd が依頼の同期、Slack / Jira の同期、判断の DM、`serve`（q
 - [承認・dispatch ポリシー](skills/review-ledger-prs/references/policy.md)
 - [delivery lifecycle](skills/review-ledger-prs/references/delivery-lifecycle.md)
 - [exact-URL intake](skills/add-review-ledger-prs/SKILL.md)
-- [Slack / Jira の同期](skills/sync-tasks/SKILL.md) と [対応](skills/respond-tasks/SKILL.md)
+- [業務ツールの同期](skills/sync-tasks/SKILL.md) と [対応](skills/respond-tasks/SKILL.md)
 - [判断の Slack DM](skills/decide-dm/SKILL.md)

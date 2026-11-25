@@ -7,7 +7,7 @@ import {
   type Point,
   type Unit,
 } from "./dashboard.ts";
-import { countErrors, filterLogs, groupLogs, inRange, linkLabel, normalizeEntry, type LevelFilter, type LogEntry, type Range } from "./logfilter.ts";
+import { countErrors, filterLogs, groupLogs, inRange, linkLabel, normalizeEntry, setSources, type LevelFilter, type LogEntry, type Range } from "./logfilter.ts";
 
 const COLUMNS = [
   ["queued", "--gray"],
@@ -500,6 +500,14 @@ async function refreshLogs() {
   } catch {}
 }
 let sync: { running: boolean; next_at: number | null } = { running: false, next_at: null };
+// Connector URL rules key and label source links (skills/sources).
+void fetch("/api/sources", { cache: "no-store" })
+  .then((r) => (r.ok ? r.json() : []))
+  .then((rules) => {
+    setSources(rules);
+    render();
+  })
+  .catch(() => {});
 const events = new EventSource("/api/events");
 events.addEventListener("sync", (e) => {
   sync = JSON.parse((e as MessageEvent).data);

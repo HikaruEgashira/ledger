@@ -8,10 +8,13 @@ notify_slack_user = "U00000000"
 # Optional: queue your own PRs whose ball is with you (CI failed, conflicts, reviewer responded, no reviewer)
 # and answer them with skills/respond-authored-prs/SKILL.md using worker_command.
 # authored_respond = true
-# Optional: treat Slack threads and Jira issues as tasks on the same queue (skills/sync-tasks, skills/respond-tasks).
+# Optional: treat work-tool items as tasks on the same queue (skills/sync-tasks, skills/respond-tasks).
+# Each tool is a connector under skills/sources/<name>/SOURCE.md reached through its MCP server; add a directory to add a tool.
 # review axis = someone asked you; respond axis = you asked someone. Workers reply/update fully automatically.
 # tasks_respond = true
-# Extra Slack search terms for task intake (own names/handles, watched topics); hits go to triage like with:me.
+# Connectors to sync (default: every connector under skills/sources).
+# task_sources = ["slack", "jira"]
+# Extra search terms per connector (own names/handles, watched topics): task_<name>_keywords; hits go to triage.
 # task_slack_keywords = ["your-handle", "\"exact phrase\""]
 # Run launchd jobs only in this hour window (start inclusive, end exclusive); omit to run always.
 # active_hours_start = 9

@@ -1,3 +1,4 @@
+import { sourceRules } from "./lib/sources.ts";
 import { existsSync, statSync } from "node:fs";
 import * as store from "./lib/store.ts";
 import { join, resolve, sep } from "node:path";
@@ -58,7 +59,7 @@ async function deliveryTick(): Promise<void> {
 const AUTO_MERGE_APP: unknown = localConfig().authored_auto_merge_app;
 // Responding to own PRs whose ball is with the author is opt-in: authored_respond = true.
 const RESPOND = localConfig().authored_respond === true;
-// Slack/Jira inbox: launchd review-task-sync fills tasks.jsonl; the queue runs workers for tasks whose ball is mine.
+// Work-tool inbox (skills/sources): launchd review-task-sync fills tasks.jsonl; the queue runs workers for tasks whose ball is mine.
 const TASKS = localConfig().tasks_respond === true;
 async function authoredTick(): Promise<void> {
   const script = join(ROOT, "app/src/authored-prs.ts");
@@ -182,7 +183,7 @@ function rows(): Response {
     queue: tag(r.url),
   }));
   // Linked tasks show once, on their primary's card.
-  const tasks: Card[] = taskCards(readTasks()).map(({ key: _key, id, ...c }) => ({ ...c, queue: tag(id) }));
+  const tasks: Card[] = taskCards(readTasks()).map(({ id, ...c }) => ({ ...c, queue: tag(id) }));
   return json([...review, ...authored, ...tasks]);
 }
 
@@ -212,7 +213,7 @@ async function answer(req: Request): Promise<Response> {
   }
 }
 
-// Slack/Jira task questions share the decide tab; their head carries the task id.
+// Work-tool task questions share the decide tab; their head carries the task id.
 const TASK_HEAD = "task:";
 function taskDecisions() {
   const rows = readTasks();
@@ -261,6 +262,7 @@ Bun.serve({
     "/api/events": events,
     "/api/decisions": () => { try { return json([...pendingDecisions(readAuthored(), readDispatched(), readDecisions()), ...taskDecisions()]); } catch (e) { return fail(e); } },
     "/api/decide": answer,
+    "/api/sources": () => json(sourceRules()),
     "/api/tasks": () => { try { const t = readTasks(); return json({ tasks: t, pending: pendingTasks(t) }); } catch (e) { return fail(e); } },
     "/api/tasks/decide": answerTask,
     "/api/sync": forceSync,

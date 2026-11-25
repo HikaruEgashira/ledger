@@ -1,6 +1,6 @@
 ---
 name: decide-dm
-description: Post pending human decisions (own-PR and Slack/Jira task questions) to the user's Slack DM and turn the user's thread replies into decisions. Use when `bun app/src/decide-dm.ts sync` starts a run with a plan.
+description: Post pending human decisions (own-PR and work-tool task questions) to the user's Slack DM and turn the user's thread replies into decisions. Use when `bun app/src/decide-dm.ts sync` starts a run with a plan.
 ---
 
 # Decide over Slack DM

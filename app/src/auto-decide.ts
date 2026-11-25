@@ -51,7 +51,7 @@ export function examples(ledger = AUTHORED_LEDGER): { examples: Example[]; last:
   const seen = new Set<string>();
   const out: (Example & { at: string })[] = [];
   const legacy = Object.entries(readDecisions(ledger)).map(([url, d]) => ({ ...d, url, options: [] as string[] }));
-  // Slack/Jira task answers teach the same memory as own-PR answers.
+  // Work-tool task answers teach the same memory as own-PR answers.
   const tasks = (store.readText(taskHistoryPath(ledger === AUTHORED_LEDGER ? TASK_LEDGER : ledger)) ?? "")
     .split("\n")
     .filter(Boolean)

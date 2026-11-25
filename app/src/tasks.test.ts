@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { cardRef, loadSources, parseSource, sourceKey } from "./lib/sources.ts";
 import { advance, groups, idFromUrl, keywordPlan, taskCard, taskCards, LOOKBACK_MS, merge, readWatermark, pendingTasks, settled, taskTargets, validate, type Incoming, type TaskRow } from "./tasks.ts";
 
 const I = (o: Partial<Incoming> = {}): Incoming => ({
@@ -140,10 +141,27 @@ describe("recent cursor", () => {
     const { mkdtempSync } = require("node:fs");
     const ledger = `${mkdtempSync(`${process.env.TMPDIR ?? "/tmp"}/tasks-`)}/tasks.jsonl`;
     const t = Date.parse("2026-11-24T12:00:00Z");
-    expect(readWatermark(ledger, t, "slack_recent_covered_until")).toBe("2026-11-23T12:00:00.000Z");
+    expect(readWatermark(ledger, t, "slack", "recent")).toBe("2026-11-23T12:00:00.000Z");
     advance(ledger, "2026-11-20T00:00:00Z", t);
-    advance(ledger, "2026-11-24T06:00:00Z", t, "slack_recent_covered_until");
+    advance(ledger, "2026-11-24T06:00:00Z", t, "slack", "recent");
     expect(readWatermark(ledger, t)).toBe("2026-11-20T00:00:00Z");
-    expect(readWatermark(ledger, t, "slack_recent_covered_until")).toBe("2026-11-24T06:00:00Z");
+    expect(readWatermark(ledger, t, "slack", "recent")).toBe("2026-11-24T06:00:00Z");
+    expect(readWatermark(ledger, t, "jira", "recent")).toBe("2026-11-23T12:00:00.000Z");
+  });
+});
+
+describe("sources", () => {
+  it("loads connectors from skills/sources and keeps existing id formats", () => {
+    expect(loadSources().map((s) => s.name)).toEqual(["jira", "slack"]);
+    expect(idFromUrl("https://x.slack.com/archives/C01ABC/p1794971997292459")).toBe("slack:C01ABC:1794971997.292459");
+    expect(idFromUrl("https://x.atlassian.net/browse/OPS2-8420?focusedCommentId=1")).toBe("jira:OPS2-8420");
+    expect(idFromUrl("https://evil.example/browse/OPS2-8420")).toBeNull();
+    expect(idFromUrl("http://x.atlassian.net/browse/OPS2-8420")).toBeNull();
+  });
+  it("accepts a new connector from its SOURCE.md alone", () => {
+    const linear = parseSource(`---\nname: linear\nmcp: linear\nhosts: [linear.app]\nrecord: true\nid: '{scope}-{key}'\nurls:\n  - match: '/issue/(?<scope>[A-Z]+)-(?<key>\\d+)'\n---\n`);
+    expect(sourceKey("https://linear.app/acme/issue/ENG-42/title", [linear])).toBe("linear:ENG-42");
+    expect(cardRef("linear:ENG-42")).toEqual({ repository: "linear/ENG", number: 42 });
+    expect(cardRef("slack:C01ABC:1794971997.292459")).toEqual({ repository: "slack/C01ABC", number: 0 });
   });
 });

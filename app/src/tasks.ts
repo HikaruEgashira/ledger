@@ -1,19 +1,20 @@
 #!/usr/bin/env bun
-// Slack/Jira tasks as an event inbox (tasks.jsonl) on the same queue as PRs: review = they asked me, respond = I asked them.
+// Work-tool tasks (skills/sources/*: Slack threads, Jira issues, ...) as an event inbox (tasks.jsonl) on the same queue as PRs: review = they asked me, respond = I asked them.
 import * as store from "./lib/store.ts";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { BATCH, oneShot, workerCommand } from "./lib/worker.ts";
 import { localConfig } from "./lib/org.ts";
-import { linkKey } from "../webui/logfilter.ts";
+import { cardRef, loadSources, sourceKey, sourceOf, type SourceDef } from "./lib/sources.ts";
 
 const ROOT = resolve(import.meta.dir, "../..");
 export const TASK_LEDGER = join(ROOT, "tasks.jsonl");
 export const SYNC_SKILL = "skills/sync-tasks/SKILL.md";
 export const RESPOND_SKILL = "skills/respond-tasks/SKILL.md";
 
-export type Source = "slack" | "jira";
+/** Name of a connector under skills/sources. */
+export type Source = string;
 /** review: someone asked me (I owe the answer). respond: I asked someone (I owe the follow-up). */
 export type Axis = "review" | "respond";
 /** Who holds the ball: triage = new thread activity a worker must classify first, mine = worker acts, theirs = wait (until follow_up_at), human = deferred to me, done = closed. */
@@ -23,14 +24,14 @@ export const HOLD = "Hold";
 export const RETRY = "Retry";
 
 export interface TaskRow {
-  id: string; // dedupe key from the source: slack:<channel>:<thread_ts> / jira:<KEY>
+  id: string; // dedupe key derived from the URL by the source: <source>:<id per SOURCE.md>
   source: Source;
   axis: Axis;
   url: string;
   title: string;
   counterpart: string;
   ball: Ball;
-  /** Source activity key (latest message ts / Jira updated); a change is new work. */
+  /** Source activity key (latest message time, issue updated); a change is new work. */
   activity: string;
   summary?: string;
   follow_up_at?: string;
@@ -38,14 +39,12 @@ export interface TaskRow {
   options?: string[];
   answer?: { choice: string; at: string; by: "human" | "auto" };
   note?: string;
-  /** Related items (Slack threads, Jira issues, GitHub PRs) this request also lives in; shared links group tasks. */
+  /** Related items (other sources' items, GitHub PRs) this request also lives in; shared links group tasks. */
   links?: string[];
   intake_at: string;
   synced_at: string;
 }
 
-const ID_RE = /^(slack:[A-Z0-9]+:\d+\.\d+|jira:[A-Z][A-Z0-9]+-\d+)$/;
-const URL_RE = /^https:\/\/[a-z0-9.-]+\.(slack\.com|atlassian\.net)\//;
 
 export function readTasks(path = TASK_LEDGER): TaskRow[] {
   return (store.readText(path) ?? "").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
@@ -68,16 +67,15 @@ export interface Incoming {
 }
 /** The id is derived from the URL, so DLP masking of a raw ts in agent output cannot corrupt the dedupe key. */
 export function idFromUrl(url: string): string | null {
-  const k = linkKey(url);
-  return k === url ? null : k;
+  return sourceKey(url);
 }
 
 export function validate(x: any): Incoming {
   x = { ...x, id: idFromUrl(String(x?.url ?? "")) ?? x?.id };
-  if (!ID_RE.test(x?.id ?? "")) throw new Error(`invalid id: ${x?.id}`);
-  if (!["slack", "jira"].includes(x.source) || !x.id.startsWith(x.source + ":")) throw new Error(`invalid source: ${x.id}`);
+  // Only a URL a connector recognizes becomes a task; its id is derived from that URL, never taken from the input.
+  if (!idFromUrl(String(x?.url ?? ""))) throw new Error(`invalid url: ${x?.url}`);
+  if (sourceOf(x.id)?.name !== x.source) throw new Error(`invalid source: ${x.id}`);
   if (!["review", "respond"].includes(x.axis)) throw new Error(`invalid axis: ${x.id}`);
-  if (!URL_RE.test(x.url ?? "")) throw new Error(`invalid url: ${x.id}`);
   if (!BALLS.includes(x.ball)) throw new Error(`invalid ball: ${x.id}`);
   if (typeof x.activity !== "string" || !x.activity) throw new Error(`missing activity: ${x.id}`);
   return { ...x, title: String(x.title ?? "").slice(0, 200), counterpart: String(x.counterpart ?? "") };
@@ -91,7 +89,7 @@ export const FOLLOW_UP_MS = 2 * 86_400_000;
 export function newer(next: string, prev: string): boolean {
   const a = Date.parse(next), b = Date.parse(prev);
   if (!Number.isNaN(a) && !Number.isNaN(b)) return a > b;
-  const x = Number(next), y = Number(prev); // Slack ts
+  const x = Number(next), y = Number(prev); // epoch-style ts (Slack)
   if (Number.isFinite(x) && Number.isFinite(y)) return x > y;
   return next !== prev;
 }
@@ -128,13 +126,13 @@ export interface TaskTarget {
   priority: number;
 }
 /** Tasks a worker should run now: ball mine, an answered deferral, or a due follow-up timer. */
-/** Canonical key of a Slack thread, Jira issue or GitHub PR URL; other URLs do not group. */
+/** Canonical key of a source item or GitHub PR URL; other URLs do not group. */
 export function refKey(url: string): string | null {
   const gh = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/.exec(url);
   return gh ? `gh:${gh[1]}#${gh[2]}` : idFromUrl(url);
 }
 
-/** One request, many places: tasks sharing a Slack thread, Jira issue or PR form a group led by one primary. */
+/** One request, many places: tasks sharing a source item or PR form a group led by one primary. */
 export function groups(rows: TaskRow[]): Map<string, { primary: string; members: string[] }> {
   const parent = new Map(rows.map((r) => [r.id, r.id]));
   const find = (x: string): string => (parent.get(x) === x ? x : (parent.set(x, find(parent.get(x)!)), parent.get(x)!));
@@ -145,12 +143,12 @@ export function groups(rows: TaskRow[]): Map<string, { primary: string; members:
       if (o) parent.set(find(r.id), find(o));
       else owner.set(k, r.id);
     }
-  const rank = (r: TaskRow) => (r.source === "jira" ? 0 : 1);
+  const rank = (r: TaskRow) => (sourceOf(r.id)?.record ? 0 : 1);
   const by = new Map<string, TaskRow[]>();
   for (const r of rows) by.set(find(r.id), [...(by.get(find(r.id)) ?? []), r]);
   const out = new Map<string, { primary: string; members: string[] }>();
   for (const g of by.values()) {
-    // The system of record leads: Jira over Slack, then the earliest intake.
+    // The system of record (record: true) leads over conversations, then the earliest intake.
     const [p, ...rest] = [...g].sort((a, b) => rank(a) - rank(b) || a.intake_at.localeCompare(b.intake_at));
     const v = { primary: p!.id, members: rest.map((r) => r.id) };
     for (const r of g) out.set(r.id, v);
@@ -233,58 +231,81 @@ export function decideTask(path: string, id: string, choice: string, custom = fa
 /** Ball left the worker: anything but mine, or an answered question still unconsumed counts as not done. */
 export const settled = (r: TaskRow | undefined) => !r || (r.ball !== "mine" && r.ball !== "triage" && !(r.ball === "human" && r.answer && r.answer.choice !== HOLD));
 
-// Keyword searches rotate: a few per run, each only since its own last search, to stay under Slack search rate limits.
+// Keyword searches rotate: a few per run, each only since its own last search, to stay under search rate limits.
 export const KEYWORDS_PER_RUN = 3;
 const keywordStatePath = (ledger: string) => join(dirname(ledger), "logs", "task-sync-keywords.json");
-export function keywordPlan(keywords: string[], last: Record<string, string>, now = Date.now(), perRun = KEYWORDS_PER_RUN): { q: string; after: string }[] {
+// Keyword state is per source; bare keys are slack's from before sources were generic.
+const kwKey = (source: string, q: string) => (source === "slack" ? q : `${source}:${q}`);
+export function keywordPlan(keywords: string[], last: Record<string, string>, now = Date.now(), perRun = KEYWORDS_PER_RUN, source = "slack"): { q: string; after: string }[] {
   const floor = now - 86_400_000;
-  const at = (k: string) => Date.parse(last[k] ?? "") || 0;
+  const at = (k: string) => Date.parse(last[kwKey(source, k)] ?? "") || 0;
   return [...keywords]
     .sort((a, b) => at(a) - at(b))
     .slice(0, perRun)
     .map((q) => ({ q, after: new Date(Math.max(at(q), floor)).toISOString() }));
 }
-function markKeywords(ledger: string, searched: string[], now = new Date().toISOString()): void {
+function markKeywords(ledger: string, source: string, searched: string[], now = new Date().toISOString()): void {
   const state = store.readJson<Record<string, string>>(keywordStatePath(ledger), {});
-  for (const k of searched) state[k] = now;
+  for (const k of searched) state[kwKey(source, k)] = now;
   store.writeJson(keywordStatePath(ledger), state);
 }
 
-// Slack coverage watermark: each run scans only from here, so a run never has to cover 14 days of with:me at once.
+// Coverage cursors per source: each run scans only from here, so a run never has to cover the whole lookback at once.
 export const LOOKBACK_MS = 14 * 86_400_000;
 const watermarkPath = (ledger: string) => join(dirname(ledger), "logs", "task-sync-watermark.json");
 /** Recent pass: the last day is read oldest-first from its own cursor, so a run that stops early never skips the middle. */
 export const RECENT_MS = 86_400_000;
-type Cursor = "slack_covered_until" | "slack_recent_covered_until";
-export function readWatermark(ledger: string, now = Date.now(), key: Cursor = "slack_covered_until"): string {
-  const lookback = key === "slack_recent_covered_until" ? RECENT_MS : LOOKBACK_MS;
+export type Pass = "backfill" | "recent";
+// Slack's cursors keep their original keys so existing state carries over.
+const cursorKey = (source: string, pass: Pass) =>
+  source === "slack" ? (pass === "recent" ? "slack_recent_covered_until" : "slack_covered_until") : `${source}_${pass}_covered_until`;
+export function readWatermark(ledger: string, now = Date.now(), source = "slack", pass: Pass = "backfill"): string {
+  const lookback = pass === "recent" ? RECENT_MS : LOOKBACK_MS;
   try {
-    const at = store.readJson<Record<string, string>>(watermarkPath(ledger), {})[key] ?? "";
+    const at = store.readJson<Record<string, string>>(watermarkPath(ledger), {})[cursorKey(source, pass)] ?? "";
     if (Date.parse(at) > now - lookback) return at;
   } catch {}
   return new Date(now - lookback).toISOString();
 }
 /** Advance only forward: a run reports the newest time it fully covered, never past now. */
-export function advance(ledger: string, until: string, now = Date.now(), key: Cursor = "slack_covered_until"): string {
+export function advance(ledger: string, until: string, now = Date.now(), source = "slack", pass: Pass = "backfill"): string {
+  const key = cursorKey(source, pass);
   const t = Date.parse(until);
   if (Number.isNaN(t) || t > now + 60_000) throw new Error(`invalid ${key}: ${until}`);
-  const cur = readWatermark(ledger, now, key);
+  const cur = readWatermark(ledger, now, source, pass);
   if (t <= Date.parse(cur)) return cur;
   store.writeJson(watermarkPath(ledger), { ...store.readJson<Record<string, string>>(watermarkPath(ledger), {}), [key]: until });
   return until;
 }
 
+/** Enabled connectors: config `task_sources` (names) or every connector under skills/sources. */
+export function enabledSources(all = loadSources()): SourceDef[] {
+  const want: unknown = localConfig().task_sources;
+  return Array.isArray(want) ? all.filter((s) => want.includes(s.name)) : all;
+}
+/** Extra search terms per source (own names, watched topics) live in config, not in the published connector. */
+function sourceKeywords(name: string): string[] {
+  const cfg = localConfig();
+  const v: unknown = cfg[`task_${name}_keywords`];
+  return Array.isArray(v) ? v.filter((k): k is string => typeof k === "string" && !!k.trim()) : [];
+}
+
+export function syncPrompt(path: string, sources = enabledSources(), now = Date.now()): string {
+  const state = store.readJson<Record<string, string>>(keywordStatePath(path), {});
+  const plan = sources.map((s) => ({
+    source: s.name,
+    connector: s.path.slice(ROOT.length + 1),
+    mcp: s.mcp,
+    recent_from: readWatermark(path, now, s.name, "recent"),
+    backfill_from: readWatermark(path, now, s.name, "backfill"),
+    keywords: keywordPlan(sourceKeywords(s.name), state, now, KEYWORDS_PER_RUN, s.name),
+  }));
+  return `Read ${SYNC_SKILL} and follow it exactly once, then exit. Sources this run: ${JSON.stringify(plan)}`;
+}
+
 function sync(path: string): number {
-  // Slack/Jira are reachable only through the worker's MCP connectors; the skill pipes results into `upsert`.
-  const since = readWatermark(path);
-  // Recent activity first every run, so today's requests never wait behind the backfill.
-  const recent = readWatermark(path, Date.now(), "slack_recent_covered_until");
-  // Extra Slack search terms (own names, watched topics) live in config, not in the published skill.
-  const kw: string[] = (localConfig().task_slack_keywords ?? []).filter((k: unknown) => typeof k === "string" && k.trim());
-  const plan = keywordPlan(kw, store.readJson<Record<string, string>>(keywordStatePath(path), {}));
-  const keywords = plan.length ? ` Slack keyword searches this run: ${JSON.stringify(plan)}.` : "";
-  const prompt = `Read ${SYNC_SKILL} and follow it exactly once, then exit. Slack recent window starts at ${recent}; backfill window starts at ${since}.${keywords}`;
-  const r = Bun.spawnSync(oneShot(workerCommand(), prompt, BATCH), { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, TASK_LEDGER: path } });
+  // Work tools are reachable only through the worker's MCP connectors; the skill pipes results into `upsert`.
+  const r = Bun.spawnSync(oneShot(workerCommand(), syncPrompt(path), BATCH), { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, TASK_LEDGER: path } });
   return r.exitCode ?? 1;
 }
 
@@ -314,9 +335,9 @@ if (import.meta.main) {
       option: { type: "string", multiple: true },
       choice: { type: "string" },
       custom: { type: "boolean", default: false },
-      "slack-covered-until": { type: "string" },
-      "slack-recent-covered-until": { type: "string" },
-      "keywords-searched": { type: "string" },
+      "covered-until": { type: "string", multiple: true },
+      "recent-covered-until": { type: "string", multiple: true },
+      "keywords-searched": { type: "string", multiple: true },
       axis: { type: "string" },
       title: { type: "string" },
       link: { type: "string", multiple: true },
@@ -326,7 +347,7 @@ if (import.meta.main) {
   const [cmd = "list", id] = p;
   const need = ["record", "dispatch", "check", "decide", "show", "link"];
   if (!["sync", "upsert", "list", ...need].includes(cmd) || (need.includes(cmd) && !id)) {
-    console.error("usage: tasks.ts {sync|upsert [--slack-covered-until ISO] [--slack-recent-covered-until ISO] [--keywords-searched JSON] <JSONL|list|show ID|record ID --ball B [--axis A] [--title T] [--link URL]...|link ID URL... [--follow-up ISO] [--note T]|dispatch ID --reason T [--option T]...|decide ID --choice T|check ID}");
+    console.error("usage: tasks.ts {sync|upsert [--covered-until SOURCE=ISO]... [--recent-covered-until SOURCE=ISO]... [--keywords-searched SOURCE=JSON]... <JSONL|list|show ID|record ID --ball B [--axis A] [--title T] [--link URL]...|link ID URL... [--follow-up ISO] [--note T]|dispatch ID --reason T [--option T]...|decide ID --choice T|check ID}");
     process.exit(2);
   }
   if (cmd === "sync") process.exit(sync(path));
@@ -337,13 +358,26 @@ if (import.meta.main) {
     const { rows, changed } = merge(readTasks(path), incoming, now);
     writeTasks(path, rows);
     for (const c of changed) console.log(`changed\t${c}`);
-    if (v["keywords-searched"]) {
-      const ks = JSON.parse(v["keywords-searched"]);
-      if (!Array.isArray(ks) || ks.some((k) => typeof k !== "string")) throw new Error("--keywords-searched must be a JSON array of strings");
-      markKeywords(path, ks);
+    const names = new Set(loadSources().map((s) => s.name));
+    const pair = (flag: string, x: string): [string, string] => {
+      const i = x.indexOf("=");
+      if (i < 1 || !names.has(x.slice(0, i))) throw new Error(`--${flag} must be SOURCE=VALUE with a known source: ${x}`);
+      return [x.slice(0, i), x.slice(i + 1)];
+    };
+    for (const x of v["keywords-searched"] ?? []) {
+      const [src, raw] = pair("keywords-searched", x);
+      const ks = JSON.parse(raw);
+      if (!Array.isArray(ks) || ks.some((k) => typeof k !== "string")) throw new Error("--keywords-searched must be SOURCE=<JSON array of strings>");
+      markKeywords(path, src, ks);
     }
-    if (v["slack-recent-covered-until"]) console.log(`slack-recent-covered-until\t${advance(path, v["slack-recent-covered-until"], Date.now(), "slack_recent_covered_until")}`);
-    if (v["slack-covered-until"]) console.log(`slack-covered-until\t${advance(path, v["slack-covered-until"])}`);
+    for (const x of v["recent-covered-until"] ?? []) {
+      const [src, at] = pair("recent-covered-until", x);
+      console.log(`${src}-recent-covered-until\t${advance(path, at, Date.now(), src, "recent")}`);
+    }
+    for (const x of v["covered-until"] ?? []) {
+      const [src, at] = pair("covered-until", x);
+      console.log(`${src}-covered-until\t${advance(path, at, Date.now(), src, "backfill")}`);
+    }
     process.exit(0);
   }
   if (cmd === "list") {
@@ -412,13 +446,12 @@ export function taskCard(r: TaskRow) {
     : r.ball === "triage" ? "queued"
     : review ? (r.ball === "mine" ? "queued" : "reviewing")
     : r.ball === "mine" ? "mine_changes_requested" : "mine_review_requested";
-  const [, scope = "", key = ""] = r.id.split(":");
-  const jira = /^([A-Z][A-Z0-9]+)-(\d+)$/.exec(scope);
+  const ref = cardRef(r.id);
   return {
     kind: review ? ("review" as const) : ("authored" as const),
     url: r.url,
-    repository: jira ? `jira/${jira[1]}` : `slack/${scope}`,
-    pr_number: jira ? Number(jira[2]) : 0,
+    repository: ref.repository,
+    pr_number: ref.number,
     status,
     priority: null,
     title: r.title,
@@ -431,7 +464,6 @@ export function taskCard(r: TaskRow) {
     changes_requested_at: null,
     merged_at: null,
     completed_at: r.ball === "done" ? r.synced_at : null,
-    key,
     id: r.id,
   };
 }

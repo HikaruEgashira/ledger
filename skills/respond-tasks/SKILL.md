@@ -1,11 +1,13 @@
 ---
 name: respond-tasks
-description: Act on exactly one Slack thread or Jira issue from tasks.jsonl whose ball is with the authenticated user (review axis: answer what was asked of me; respond axis: react to the counterpart or follow up on my request). Use when the queue starts a worker for a task id. Finish by moving the ball (theirs with a follow-up timer, done) or deferring to the human.
+description: Act on exactly one work-tool item (Slack thread, Jira issue, or any connector under skills/sources) from tasks.jsonl whose ball is with the authenticated user (review axis: answer what was asked of me; respond axis: react to the counterpart or follow up on my request). Use when the queue starts a worker for a task id. Finish by moving the ball (theirs with a follow-up timer, done) or deferring to the human.
 ---
 
 # Respond to one task
 
 You act as the user on exactly one task id from the prompt. Do not touch other tasks, PRs, or ledgers.
+
+The task's `source` names its connector: read `skills/sources/<source>/SOURCE.md` first and follow its "Act" section for how to reply and what must stay a draft there. Use that connector's MCP server for the item.
 
 ```sh
 bun app/src/tasks.ts show <ID>
@@ -13,15 +15,15 @@ bun app/src/tasks.ts show <ID>
 
 ## One request, one group
 
-A request often lives in several places at once: a Slack thread, a Jira issue, a GitHub PR. `show` lists the task's `group`: you were started on the primary, and its members are the same request elsewhere. Read every member and work the group as one: one reply where the conversation is, one decision, one outcome.
+A request often lives in several places at once: a conversation, a ticket, a GitHub PR. `show` lists the task's `group`: you were started on the primary, and its members are the same request elsewhere. Read every member and work the group as one: one reply where the conversation is, one decision, one outcome.
 
-Record every Slack thread, Jira issue and PR this request is tied to (found in the thread, the issue description and comments, PR bodies), on every `record` / `dispatch` with `--link <url>` (repeatable), or right away:
+Record every item and PR this request is tied to (found in the conversation, the ticket description and comments, PR bodies), on every `record` / `dispatch` with `--link <url>` (repeatable), or right away:
 
 ```sh
 bun app/src/tasks.ts link <ID> <url> [<url>...]   # prints the resulting primary and members
 ```
 
-Linking can make another task the primary (a Jira issue leads a Slack thread). If the printed primary is not your ID, finish by `record <ID> --ball done --note "grouped into <primary>"`; the primary's worker takes over.
+Linking can make another task the primary (a system of record such as a ticket leads a conversation). If the printed primary is not your ID, finish by `record <ID> --ball done --note "grouped into <primary>"`; the primary's worker takes over.
 
 ## Done condition
 
@@ -37,27 +39,23 @@ bun app/src/tasks.ts check <ID>   # exit 0 = done
 
 ## Memory
 
-Read first: the full Slack thread / Jira issue and comments, `logs/decision-memory.md` (generalized past human answers), and the task's `note` and `answer` (a human answer to your earlier question is the instruction for this run).
+Read first: the full item (conversation or ticket and its comments), `logs/decision-memory.md` (generalized past human answers), and the task's `note` and `answer` (a human answer to your earlier question is the instruction for this run).
 
 ## Triage (ball `triage`)
 
-A `triage` task is a Slack thread with new activity that nobody has judged yet. Before acting:
+A `triage` task is an item with new activity that nobody has judged yet. Before acting:
 
 1. Read the whole thread and follow what it points to (surrounding messages, linked issues, PRs, threads) until the request is clear.
 2. Axis = who originated the request, judged from the substance. Who posted, who is mentioned, or which tool relayed it does not decide it; a message posted by a bot or tool on someone's behalf is that person's.
 3. One request is one task: link the places it lives (see "One request, one group") instead of closing them separately.
-4. My reactions count as replies: a request I reacted to (✅, :done:, :ok: and the like) is acknowledged. Before treating anything as open, check whether it was already settled elsewhere (linked PR merged, LGTM written in the doc, reply or button pressed in the source).
+4. Acknowledgements count as replies (the connector says what counts, such as reactions). Before treating anything as open, check whether it was already settled elsewhere (linked PR merged, LGTM written in the doc, reply or button pressed in the source).
 5. No open request (announcement, FYI, resolved): `record <ID> --ball done --note "<why>"`.
 6. Otherwise set the axis and a one-line title, then act below in the same run: `record <ID> --ball mine --axis <review|respond> --title "<request>"`.
 
 ## Act, by axis
 
-- `review` (someone asked me): do what is asked when it is within the user's role and reversible (answer a question from code/docs/Jira/Confluence, check a PR or config, create or update a Jira ticket). Reply in the thread / comment on the issue with the result.
+- `review` (someone asked me): do what is asked when it is within the user's role and reversible (answer a question from code and docs, check a PR or config, create or update a ticket). Reply where the request was made, as the connector says.
 - `respond` (I asked someone): if they replied, react (answer their question, confirm, close the loop); if nothing came back by the timer, send one short follow-up. Never more than one follow-up per timer.
-
-Slack: reply in thread, never in channel root. No apology/agreement openers.
-
-Private conversations are draft-only: when the thread is in a private channel, DM or group DM, never call `slack_send_message`; write the reply with `slack_send_message_draft` (same thread) then hand it over with `tasks.ts dispatch <ID> --reason "下書き済み: 確認して送信してください" --option "送信した"`. Public channels may be posted directly.
 
 ## Pull requests belong to the PR ledgers
 
@@ -77,8 +75,8 @@ When the request is a code or configuration change (add an allowlist entry, fix 
 1. Work in `respond-workspaces/<owner>/<repo>-task-<short id>` (gitignored): clone the repository there, branch from the default branch, never touch the read-only `repositories/` checkouts.
 2. Make the smallest change that does what was agreed, following the repository's own instructions (CLAUDE.md/AGENTS.md, CODEOWNERS, PR template). Narrow anything broad (an IP range, a permission) to what the evidence supports, and say so in the PR.
 3. Commit with the repository's normal signing and push with a normal non-force push to the new branch. If signing or authentication fails, dispatch; never bypass it.
-4. Open the PR as the user (`GHTKN_APP=<org>/write gh pr create`), body in Japanese with the request's links (thread, Jira), and apply the labels and reviewers the repository and the user's instructions require.
-5. Reply in the thread / comment on the issue with the PR link, `link` the PR to this task, and record `theirs` with a follow-up.
+4. Open the PR as the user (`GHTKN_APP=<org>/write gh pr create`), body in Japanese with the request's links, and apply the labels and reviewers the repository and the user's instructions require.
+5. Reply where the request was made with the PR link, `link` the PR to this task, and record `theirs` with a follow-up.
 
 The PR then lives in the own-PR ledger like any other; do not review or merge it here. When the change needs a choice the thread did not settle (which range, which repo, whether at all), dispatch with concrete options instead.
 

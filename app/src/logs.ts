@@ -3,7 +3,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { queryLogs } from "./db.ts";
 import { join } from "node:path";
 
-import { extractLinks, type Level, type LogEntry } from "../webui/logfilter.ts";
+import { extractLinks, setSources, type Level, type LogEntry } from "../webui/logfilter.ts";
+import { sourceRules } from "./lib/sources.ts";
+
+setSources(sourceRules());
 export type { Level, LogEntry };
 
 type LedgerRowLike = Record<string, any>;

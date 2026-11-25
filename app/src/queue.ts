@@ -137,7 +137,7 @@ export function plan(
   const ready = Object.values(next)
     .filter((j) => j.state === "waiting" && (!j.next_at || Date.parse(j.next_at) <= now))
     .sort((a, b) => a.priority - b.priority || a.enqueued_at.localeCompare(b.enqueued_at));
-  // Own-PR responders and Slack/Jira task workers each get their own cap.
+  // Own-PR responders and work-tool task workers each get their own cap.
   const busy: Record<string, number> = {};
   for (const j of Object.values(next)) if (j.state === "running" && j.kind) busy[j.kind] = (busy[j.kind] ?? 0) + 1;
   const start = ready

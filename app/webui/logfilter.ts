@@ -1,15 +1,20 @@
+import { keyLabel, sourceKey, type SourceRule } from "./sourcekey.ts";
+
 export type Level = "error" | "warn" | "info";
 export type LogEntry = { source: string; level: Level; ts: string | null; links: string[]; msg: string };
 
-const LINK_RE =
-  /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+|https:\/\/[\w-]+\.slack\.com\/archives\/[A-Z0-9]+\/p\d{16}(?:\?[^\s"'<>)\\]*)?|https:\/\/[\w-]+\.atlassian\.net\/browse\/[A-Z][A-Z0-9]+-\d+/g;
+const URL_RE = /https:\/\/[^\s"'<>)\\]+/g;
+const PR_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/;
 
-/** Same identity for every URL form of a ticket: slack:<channel>:<thread_ts> / jira:<KEY>; PR URLs are already canonical. */
+// Connector URL rules (skills/sources): the server loads them, the browser receives them from /api/sources.
+let SOURCES: SourceRule[] = [];
+export function setSources(rules: SourceRule[]): void {
+  SOURCES = rules;
+}
+
+/** Same identity for every URL form of an item: <source>:<id>; PR URLs are already canonical. */
 export function linkKey(url: string): string {
-  const s = /\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})(?:\?(?:.*&)?thread_ts=(\d+\.\d+))?/.exec(url);
-  if (s) return `slack:${s[1]}:${s[4] ?? `${s[2]}.${s[3]}`}`;
-  const j = /\/browse\/([A-Z][A-Z0-9]+-\d+)(?:$|[?#/])/.exec(url);
-  return j ? `jira:${j[1]}` : url;
+  return sourceKey(url, SOURCES) ?? url;
 }
 
 /** Accepts entries from a server still emitting the single `url` field. */
@@ -20,14 +25,18 @@ export function normalizeEntry(e: Partial<LogEntry> & { url?: string | null }): 
 
 export function extractLinks(text: string): string[] {
   const out = new Map<string, string>();
-  for (const m of text.matchAll(LINK_RE)) if (!out.has(linkKey(m[0]))) out.set(linkKey(m[0]), m[0]);
+  for (const m of text.matchAll(URL_RE)) {
+    const u = m[0].replace(/[.,;:]+$/, "");
+    const pr = PR_RE.exec(u)?.[0];
+    const link = pr ?? (sourceKey(u, SOURCES) ? u : null);
+    if (link && !out.has(linkKey(link))) out.set(linkKey(link), link);
+  }
   return [...out.values()];
 }
 
 export function linkLabel(url: string): string {
   const k = linkKey(url);
-  if (k.startsWith("jira:")) return k.slice(5);
-  if (k.startsWith("slack:")) return `slack/${k.split(":")[1]}`;
+  if (k !== url) return keyLabel(k);
   return url.replace(/^https:\/\/github\.com\/[^/]+\//, "");
 }
 export type LevelFilter = "error" | "warn" | "all";
