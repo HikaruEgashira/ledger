@@ -1,4 +1,4 @@
-// Periodically tell authors what they need to do on PRs whose ball is with them (draft, conflicts, red CI, change requests, open threads).
+// Periodically tell authors what they need to do on PRs whose ball is with them (conflicts, red CI, change requests, open threads).
 import { join, resolve } from "node:path";
 import * as store from "./lib/store.ts";
 import { localConfig, org } from "./lib/org.ts";
@@ -20,11 +20,11 @@ export function nudgeConfig(cfg = localConfig()): { authors: Set<string>; interv
   return { authors: new Set(authors), intervalMs: (Number(cfg.nudge_interval_hours) || 24) * HOUR };
 }
 
-/** Watched ledger rows whose enrolled author has been idle (and un-nudged) for the interval. */
+/** Watched non-draft ledger rows whose enrolled author has been idle (and un-nudged) for the interval. */
 export function candidates(rows: Row[], state: NudgeState, authors: Set<string>, now: number, intervalMs: number): Row[] {
   return rows.filter((r) => {
     const live = r.live ?? {};
-    if (!WATCHED.has(r.status) || live.state !== "OPEN" || !authors.has(live.author?.login)) return false;
+    if (!WATCHED.has(r.status) || live.state !== "OPEN" || live.isDraft || !authors.has(live.author?.login)) return false;
     const idle = now - Date.parse(live.updatedAt ?? "") >= intervalMs;
     const last = state[r.url];
     return idle && (!last || now - Date.parse(last.at) >= intervalMs);
@@ -35,8 +35,7 @@ export function candidates(rows: Row[], state: NudgeState, authors: Set<string>,
 export function asks(row: Row, threads: Row[]): string[] {
   const out: string[] = [];
   for (const r of (row.decision?.reasons ?? []) as string[]) {
-    if (r === "pull request is draft") out.push("作業が終わっていれば Ready for review に（不要なら close）");
-    else if (r === "pull request mergeability is CONFLICTING") out.push("base ブランチとのコンフリクト解消");
+    if (r === "pull request mergeability is CONFLICTING") out.push("base ブランチとのコンフリクト解消");
     else if (r === "pull request merge state is BEHIND") out.push("base ブランチの取り込み");
     else if (r.startsWith("failed checks: ")) out.push(`CI (${r.slice(15)}) の修正`);
     else if (r === "an active review requests changes" || /unresolved blocking finding/.test(r)) out.push("Request changes の指摘への対応");

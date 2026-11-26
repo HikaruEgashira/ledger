@@ -15,8 +15,9 @@ describe("candidates", () => {
   it("picks idle enrolled authors whose ball it is", () => {
     expect(candidates([row()], {}, authors, now, 24 * H)).toHaveLength(1);
   });
-  it("includes queued drafts", () => {
-    expect(candidates([row({ status: "queued", live: { isDraft: true } })], {}, authors, now, 24 * H)).toHaveLength(1);
+  it("includes queued PRs but never drafts", () => {
+    expect(candidates([row({ status: "queued" })], {}, authors, now, 24 * H)).toHaveLength(1);
+    expect(candidates([row({ status: "queued", live: { isDraft: true } })], {}, authors, now, 24 * H)).toHaveLength(0);
   });
   it("skips other authors, active PRs and our own turn", () => {
     expect(candidates([row({ live: { author: { login: "x" } } })], {}, authors, now, 24 * H)).toHaveLength(0);
@@ -35,7 +36,6 @@ describe("asks/message", () => {
   it("turns author-side blockers and open threads into asks", () => {
     const r = row({ decision: { reasons: ["pull request is draft", "pull request mergeability is CONFLICTING", "pull request merge state is DIRTY", "failed checks: test", "an active review requests changes", "review evidence is missing"] } });
     expect(asks(r, [thread("coderabbitai"), thread("someone"), thread("x", true)])).toEqual([
-      "作業が終わっていれば Ready for review に（不要なら close）",
       "base ブランチとのコンフリクト解消",
       "CI (test) の修正",
       "Request changes の指摘への対応",
