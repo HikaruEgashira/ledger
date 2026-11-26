@@ -207,9 +207,14 @@ export function readDispatched(path = AUTHORED_LEDGER): Record<string, Dispatch>
 
 export const isDispatched = (row: AuthoredRow, d: ReturnType<typeof readDispatched>) => d[row.url]?.head === row.head_sha;
 
+// The human chose to treat a red CI at this head as done; the queue stops retrying that head only.
+export const IGNORE_CI = "この head の ci_failed を無視して done とみなす(キュー側で抑止)";
+export const ciIgnored = (row: AuthoredRow, dec: Decisions) =>
+  row.reason === "ci_failed" && dec[row.url]?.head === row.head_sha && dec[row.url].choice === IGNORE_CI;
+
 /** The response is complete once the ball is with the reviewers (or a human took it over). */
-export const responded = (row: AuthoredRow, d: ReturnType<typeof readDispatched>) =>
-  row.status !== "mine_changes_requested" || isDispatched(row, d);
+export const responded = (row: AuthoredRow, d: ReturnType<typeof readDispatched>, dec: Decisions = {}) =>
+  row.status !== "mine_changes_requested" || isDispatched(row, d) || ciIgnored(row, dec);
 
 // Activity key: a new push or a new reviewer response is new work; the worker's own comments are not.
 export const activityKey = (row: AuthoredRow) => [row.reason, ...row.pending_reviewers, ...row.responded_reviewers].join(",");
@@ -224,7 +229,7 @@ export interface AuthoredTarget {
 /** Own PRs whose ball is with the author; drafts stay the author's choice. */
 export function authoredTargets(rows: AuthoredRow[], d: ReturnType<typeof readDispatched>, dec: Decisions = {}): AuthoredTarget[] {
   return rows
-    .filter((r) => r.status === "mine_changes_requested" && r.reason !== "draft" && !isDispatched(r, d))
+    .filter((r) => r.status === "mine_changes_requested" && r.reason !== "draft" && !isDispatched(r, d) && !ciIgnored(r, dec))
     .map((r) => ({ url: r.url, scope: "authored", head: r.head_sha, updated: [activityKey(r), dec[r.url]?.at ?? ""].join("|"), priority: 60 }));
 }
 
@@ -337,7 +342,7 @@ function check(path: string, url: string): number {
   const row = toRow(live, new Date().toISOString());
   writeAuthored(path, [...rows, row].sort((a, b) => a.url.localeCompare(b.url)));
   // GitHub is still computing mergeability; a reason derived from it is not a verdict yet.
-  const ok = live.mergeable !== "UNKNOWN" && responded(row, readDispatched(path));
+  const ok = live.mergeable !== "UNKNOWN" && responded(row, readDispatched(path), readDecisions(path));
   console.log(`${ok ? "done" : "still-mine"}\t${url}\t${row.status}\t${row.reason}`);
   return ok ? 0 : 1;
 }

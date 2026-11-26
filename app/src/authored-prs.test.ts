@@ -157,3 +157,12 @@ test("sync writes are visible to merge's ledger read even after the store holds 
   writeAuthored(path, [{ url: "u1" } as AuthoredRow, { url: "u2" } as AuthoredRow]);
   expect(readAuthored(path).map((r) => r.url)).toEqual(["u1", "u2"]);
 });
+
+import { IGNORE_CI } from "./authored-prs.ts";
+test("an ignore-CI decision settles only that head's ci_failed", () => {
+  const dec = { u: { head: "h", question: "q", choice: IGNORE_CI, at: "t" } };
+  expect(responded(arow({}), {}, dec)).toBe(true);
+  expect(authoredTargets([arow({})], {}, dec)).toEqual([]);
+  expect(responded(arow({ head_sha: "new" }), {}, dec)).toBe(false);
+  expect(responded(arow({ reason: "conflicting" }), {}, dec)).toBe(false);
+});
