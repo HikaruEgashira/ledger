@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 // Sync the authenticated user's own open PRs into authored_prs.jsonl (separate from the review ledger).
 import * as store from "./lib/store.ts";
-import { appendFileSync, mkdirSync, renameSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { org } from "./lib/org.ts";
@@ -174,10 +173,8 @@ export function readAuthored(path = AUTHORED_LEDGER): AuthoredRow[] {
   return (store.readText(path) ?? "").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
 }
 
-function writeAuthored(path: string, rows: AuthoredRow[]): void {
-  const tmp = join(dirname(path), `.tmp-authored-${process.pid}`);
-  writeFileSync(tmp, rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""), { mode: 0o600 });
-  renameSync(tmp, path);
+export function writeAuthored(path: string, rows: AuthoredRow[]): void {
+  store.writeText(path, rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""));
 }
 
 function sync(path: string): AuthoredRow[] {

@@ -149,3 +149,11 @@ test("escalateStuck hands an exhausted own PR to a human once", () => {
   expect(readDispatched(ledger).u.reason).toContain("conflicting");
   expect(escalateStuck(ledger, { u: job })).toEqual([]);
 });
+
+import { readAuthored, writeAuthored } from "./authored-prs.ts";
+test("sync writes are visible to merge's ledger read even after the store holds an older copy", () => {
+  const path = pj(mkdtempSync(pj(tmpdir(), "auth-")), "authored_prs.jsonl");
+  writeAuthored(path, [{ url: "u1" } as AuthoredRow]);
+  writeAuthored(path, [{ url: "u1" } as AuthoredRow, { url: "u2" } as AuthoredRow]);
+  expect(readAuthored(path).map((r) => r.url)).toEqual(["u1", "u2"]);
+});
