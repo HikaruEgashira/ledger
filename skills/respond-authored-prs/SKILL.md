@@ -60,6 +60,10 @@ Own stacked PRs (base→head chained in one repo) are approved first and merged 
   maintainers with push access evident from the repository. If you cannot
   determine anyone, dispatch.
 
+Never @-mention a team (`@org/team`) in any comment, reply, or PR body: it pages
+every member and is spam. Ask for review only through GitHub's review-request
+API on individual users; a comment, if any, mentions only those individuals.
+
 ## Judging review comments (including CodeRabbit and other bots)
 
 Evaluate each comment on its merits against the intent and the code. Agreement is
