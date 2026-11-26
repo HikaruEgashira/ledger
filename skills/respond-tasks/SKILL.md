@@ -57,6 +57,22 @@ A `triage` task is an item with new activity that nobody has judged yet. Before 
 - `review` (someone asked me): do what is asked when it is within the user's role and reversible (answer a question from code and docs, check a PR or config, create or update a ticket). Reply where the request was made, as the connector says.
 - `respond` (I asked someone): if they replied, react (answer their question, confirm, close the loop); if nothing came back by the timer, send one short follow-up. Never more than one follow-up per timer.
 
+## Alerts
+
+A task whose thread root is a monitoring alert (CloudWatch alarm, error-rate alert and the like) from a channel the sync watches is a request to investigate, not an FYI. Never close it as "no open request" without the steps below.
+
+1. Identify the resource from the alert: account ID, region, function or service name. Map the account ID to a profile with the AWS MCP `list_aws_profiles`; names do not follow repositories.
+2. Find where it logs before searching: a Lambda may write to a shared log group (`aws lambda get-function-configuration --query LoggingConfig`). Search that group with a log-stream prefix around the datapoint times in the alert, and read the failing request's own lines by request ID.
+3. Find the source (search `~/ghq/github.com/<org>` for the handler or a file in the stack trace) and compare with what is deployed: the default branch's recent commits on that path, the function's `LastModified`, and the error metric since that time.
+4. Decide:
+   - Already fixed and deployed, and the metric has been clean since: reply in the alert thread with the cause in one line and the fixing PR, then `record --ball done`.
+   - Transient outside the user's control (an upstream outage that recovered): reply with the cause and evidence, then `record --ball done`.
+   - A code or config fix within the user's role: make it a pull request as in "Changes as pull requests" (reviewer = whoever reviewed recent PRs on the same path, ticket per the user's instructions), reply in the alert thread with the reviewer's mention and the PR link, then `record --ball theirs` with a follow-up.
+   - Otherwise, dispatch with what you found and concrete options.
+5. Recovery (OK) notices: done, unless the same alarm keeps flapping, which is itself the investigation.
+
+Logs and payloads can hold personal data and message bodies: quote only error types, codes and stack frames in replies, PRs and tickets.
+
 ## Pull requests belong to the PR ledgers
 
 Ledgers live in SQLite, not in files; never grep `pull_requests.jsonl` or `authored_prs.jsonl` (they may not exist). To see whether a PR is already tracked:

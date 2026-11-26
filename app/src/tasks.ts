@@ -284,11 +284,13 @@ export function enabledSources(all = loadSources()): SourceDef[] {
   return Array.isArray(want) ? all.filter((s) => want.includes(s.name)) : all;
 }
 /** Extra search terms per source (own names, watched topics) live in config, not in the published connector. */
-function sourceKeywords(name: string): string[] {
-  const cfg = localConfig();
-  const v: unknown = cfg[`task_${name}_keywords`];
+function sourceList(name: string, key: string): string[] {
+  const v: unknown = localConfig()[`task_${name}_${key}`];
   return Array.isArray(v) ? v.filter((k): k is string => typeof k === "string" && !!k.trim()) : [];
 }
+const sourceKeywords = (name: string) => sourceList(name, "keywords");
+// Alert channels: every bot alert there is a request to investigate, whoever it mentions.
+const sourceAlertChannels = (name: string) => sourceList(name, "alert_channels");
 
 export function syncPrompt(path: string, sources = enabledSources(), now = Date.now()): string {
   const state = store.readJson<Record<string, string>>(keywordStatePath(path), {});
@@ -299,6 +301,7 @@ export function syncPrompt(path: string, sources = enabledSources(), now = Date.
     recent_from: readWatermark(path, now, s.name, "recent"),
     backfill_from: readWatermark(path, now, s.name, "backfill"),
     keywords: keywordPlan(sourceKeywords(s.name), state, now, KEYWORDS_PER_RUN, s.name),
+    alert_channels: sourceAlertChannels(s.name),
   }));
   return `Read ${SYNC_SKILL} and follow it exactly once, then exit. Sources this run: ${JSON.stringify(plan)}`;
 }

@@ -16,6 +16,8 @@ notify_slack_user = "U00000000"
 # task_sources = ["slack", "jira"]
 # Extra search terms per connector (own names/handles, watched topics): task_<name>_keywords; hits go to triage.
 # task_slack_keywords = ["your-handle", "\"exact phrase\""]
+# Alert channels per connector (channel IDs): every alert posted there becomes a review task to investigate and fix.
+# task_slack_alert_channels = ["C00000000"]
 # Run launchd jobs only in this hour window (start inclusive, end exclusive); omit to run always.
 # active_hours_start = 9
 # active_hours_end = 18

@@ -13,7 +13,8 @@ The prompt lists this run's sources: for each, its connector file (`skills/sourc
 2. Two axes, mirroring GitHub review requests vs. own PRs:
    - `review`: someone asked me to do, decide, check or answer something.
    - `respond`: I asked someone (named or not) for something.
-3. Skip what `logs/decision-memory.md` says the human never wants as a task (kinds of bot reminders and notices, for example); judge from the sender and text only. Do not read whole threads or classify here; conversations go in as `triage`, the worker judges them.
+3. Alert channels the prompt lists are an exception to the axes above: every alert there is `review` (investigating it is my job). Never skip them as bot notices.
+4. Skip what `logs/decision-memory.md` says the human never wants as a task (kinds of bot reminders and notices, for example); judge from the sender and text only. Do not read whole threads or classify here; conversations go in as `triage`, the worker judges them.
 
 If a source fails, keep going with the others, upsert what they returned, and exit non-zero.
 

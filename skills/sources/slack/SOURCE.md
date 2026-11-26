@@ -19,6 +19,8 @@ The prompt gives a recent window and a backfill window for this source. With `sl
 - backfill: `after:<backfill window start date>`, `sort: timestamp`, `sort_dir: asc`. Report `--covered-until slack=<ISO of the newest backfill hit you emitted>`.
 - keywords: for each `{q, after}` the prompt lists for slack, one search with `q` as given (no `with:me`), `after:<date of after>`, newest first, at most 2 pages, stopping at the first hit older than `after`. Report the ones you ran with `--keywords-searched slack='<JSON array of q>'`.
 
+- alert channels: for each channel ID the prompt lists under `alert_channels`, one search `in:<#ID>` with `include_bots: true`, `after:<recent window start date>`, newest first, at most 2 pages. Emit every alert thread root (bot or app posts such as CloudWatch alarms), even when nobody mentions me, with `axis: "review"` and a summary that names the alarm, the resource and the account. Their OK/recovery notices go in too; the worker closes them.
+
 Skip my DM with myself, and relays of items another inbox owns (GitHub PR events belong to the PR ledgers). Keep other bot and app DMs. Group hits by thread root: `url` = thread root permalink, `activity` = ISO time of the newest hit in the thread, `ball: "triage"`, `axis: "review"` (placeholder).
 
 ## Act
