@@ -11,6 +11,7 @@ import type { Card } from "../webui/dashboard.ts";
 import { readLogs } from "./logs.ts";
 import { ingestLogs, openDb } from "./db.ts";
 import { CONCURRENCY, readQueue, tick } from "./queue.ts";
+import { nudgeTick } from "./nudge.ts";
 import { decideTask, pendingTasks, readTasks, TASK_LEDGER, taskCard, taskCards, taskTargets } from "./tasks.ts";
 
 const ROOT = resolve(import.meta.dir, "../..");
@@ -128,6 +129,11 @@ async function loop() {
   for (;;) {
     await monitorTick();
     await deliveryTick();
+    try {
+      for (const u of nudgeTick(readLedger(args.ledger))) console.log(`nudged\t${u}`);
+    } catch (e) {
+      console.error(`error: nudge: ${(e as Error).message}`);
+    }
     try {
       ingestLogs(db, ROOT);
     } catch (e) {

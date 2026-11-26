@@ -20,6 +20,9 @@ notify_slack_user = "U00000000"
 # active_hours_start = 9
 # active_hours_end = 18
 # active_hours_tz = "Asia/Tokyo"
+# Optional: remind enrolled authors on PRs we only watch (changes requested / CI red) about open CodeRabbit threads and failing CI.
+# nudge_authors = ["teammate-login"]
+# nudge_interval_hours = 24
 exclude_authors = ["your-github-login"]
 worker_command = [
   "/usr/bin/env",
