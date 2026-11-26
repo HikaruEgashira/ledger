@@ -1,54 +1,57 @@
-// Periodically remind authors of PRs whose ball is with them (we requested changes, CodeRabbit threads open, CI red).
+// Periodically tell authors what they need to do on PRs whose ball is with them (draft, conflicts, red CI, change requests, open threads).
 import { join, resolve } from "node:path";
 import * as store from "./lib/store.ts";
 import { localConfig, org } from "./lib/org.ts";
-import { PRE_APPROVAL_REVIEW_CHECKS, runGh } from "./reviewctl/core.ts";
+import { runGh } from "./reviewctl/core.ts";
 import { exec } from "./lib/util.ts";
 
 const ROOT = resolve(import.meta.dir, "../..");
 export const NUDGE_STATE = join(ROOT, "nudges.json");
 const HOUR = 3_600_000;
-const BALL_WITH_AUTHOR = new Set(["changes_requested", "waiting_ci"]);
+// Pre-merge states where the agent only waits; approved/human_required/post-merge rows are not the author's turn.
+const WATCHED = new Set(["queued", "waiting_ci", "changes_requested"]);
 const CODERABBIT = new Set(["coderabbitai", "coderabbitai[bot]"]);
 
 type Row = Record<string, any>;
 export type NudgeState = Record<string, { at: string; head: string }>;
-export interface Todo { coderabbit: number; failedChecks: string[]; changesRequested: boolean }
 
 export function nudgeConfig(cfg = localConfig()): { authors: Set<string>; intervalMs: number } {
   const authors = Array.isArray(cfg.nudge_authors) ? cfg.nudge_authors.filter((a: unknown) => typeof a === "string") : [];
   return { authors: new Set(authors), intervalMs: (Number(cfg.nudge_interval_hours) || 24) * HOUR };
 }
 
-/** Ledger rows we watch silently whose author is enrolled and has been idle (and un-nudged) for the interval. */
+/** Watched ledger rows whose enrolled author has been idle (and un-nudged) for the interval. */
 export function candidates(rows: Row[], state: NudgeState, authors: Set<string>, now: number, intervalMs: number): Row[] {
   return rows.filter((r) => {
     const live = r.live ?? {};
-    if (!BALL_WITH_AUTHOR.has(r.status) || live.isDraft || live.state !== "OPEN") return false;
-    if (!authors.has(live.author?.login)) return false;
+    if (!WATCHED.has(r.status) || live.state !== "OPEN" || !authors.has(live.author?.login)) return false;
     const idle = now - Date.parse(live.updatedAt ?? "") >= intervalMs;
     const last = state[r.url];
     return idle && (!last || now - Date.parse(last.at) >= intervalMs);
   });
 }
 
-export function todo(row: Row, threads: Row[]): Todo {
-  const coderabbit = threads.filter(
-    (t) => !t.isResolved && !t.isOutdated && CODERABBIT.has(t.comments?.nodes?.[0]?.author?.login),
-  ).length;
-  const checks: Row[] = Array.isArray(row.live?.checks) ? row.live.checks : [];
-  const failedChecks = checks.filter((c) => ["failure", "error", "timed_out", "cancelled"].includes(c?.state) && !PRE_APPROVAL_REVIEW_CHECKS.has(c.name))
-    .map((c) => c.name);
-  return { coderabbit, failedChecks, changesRequested: row.status === "changes_requested" };
+/** Author-actionable asks from the sync verdict's blockers plus open review threads; agent-side reasons map to nothing. */
+export function asks(row: Row, threads: Row[]): string[] {
+  const out: string[] = [];
+  for (const r of (row.decision?.reasons ?? []) as string[]) {
+    if (r === "pull request is draft") out.push("作業が終わっていれば Ready for review に（不要なら close）");
+    else if (r === "pull request mergeability is CONFLICTING") out.push("base ブランチとのコンフリクト解消");
+    else if (r === "pull request merge state is BEHIND") out.push("base ブランチの取り込み");
+    else if (r.startsWith("failed checks: ")) out.push(`CI (${r.slice(15)}) の修正`);
+    else if (r === "an active review requests changes" || /unresolved blocking finding/.test(r)) out.push("Request changes の指摘への対応");
+  }
+  const open = threads.filter((t) => !t.isResolved && !t.isOutdated);
+  if (open.length) {
+    const cr = open.filter((t) => CODERABBIT.has(t.comments?.nodes?.[0]?.author?.login)).length;
+    out.push(`未解決のレビュースレッド ${open.length} 件${cr ? `（うち CodeRabbit ${cr} 件）` : ""}への修正か返信・resolve`);
+  }
+  return [...new Set(out)];
 }
 
-export function message(author: string, t: Todo): string | null {
-  const asks: string[] = [];
-  if (t.coderabbit) asks.push(`CodeRabbit の未解決指摘 ${t.coderabbit} 件の対応`);
-  if (t.failedChecks.length) asks.push(`CI (${t.failedChecks.join(", ")}) の修正`);
-  if (t.changesRequested && !asks.length) asks.push("Request changes の指摘への対応");
-  if (!asks.length) return null;
-  return `@${author} ${asks.join("と")}をお願いします🙏 対応済みならスレッドを resolve するか返信で教えてください`;
+export function message(author: string, list: string[]): string | null {
+  if (!list.length) return null;
+  return `@${author} 以下の対応をお願いします🙏\n${list.map((a) => `- ${a}`).join("\n")}`;
 }
 
 function fetchThreads(url: string): Row[] {
@@ -68,7 +71,7 @@ export function nudgeTick(rows: Row[], now = Date.now()): string[] {
   const sent: string[] = [];
   for (const row of candidates(rows, state, authors, now, intervalMs)) {
     try {
-      const body = message(row.live.author.login, todo(row, fetchThreads(row.url)));
+      const body = message(row.live.author.login, asks(row, fetchThreads(row.url)));
       // Nothing concrete to ask: record the check so the PR is not re-fetched every loop.
       if (body) {
         // The server's gh token is read-only; post with the write-capable app.
