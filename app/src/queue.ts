@@ -13,7 +13,7 @@ export const MAX_ATTEMPTS = 3;
 export const BACKOFF_MS = 10 * 60_000;
 /** Times an exhausted job gets a fresh budget after another worker succeeds (outage recovered). */
 export const MAX_REVIVALS = 3;
-const POLLER_SOURCE = "review-poller";
+export const POLLER_SOURCE = "review-poller";
 const LEGACY_REASON = "team poller";
 const DIRECT = "direct";
 const UNLANDED_APPROVALS = new Set(["write-rejected", "write-outcome-unknown"]);
@@ -124,6 +124,10 @@ export function plan(
         next_at: ok ? undefined : new Date(now + BACKOFF_MS).toISOString(),
       };
       succeeded ||= ok;
+    } else if (job.kind === "authored" && job.state === "done") {
+      // Still my turn at the same key: the verdict was transient (e.g. mergeable UNKNOWN), so the work is not done.
+      const out = job.attempts >= MAX_ATTEMPTS;
+      next[url] = { ...job, state: out ? "exhausted" : "waiting", next_at: out ? undefined : new Date(now + BACKOFF_MS).toISOString() };
     } else next[url] = { ...job, priority: t.priority, scope: t.scope, evidence: t.evidence };
   }
   // A worker just succeeded, so the host (tokens, network) works again: retry jobs that exhausted during an outage.

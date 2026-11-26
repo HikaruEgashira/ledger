@@ -19,6 +19,7 @@ import {
   readLedger,
   writeLedger,
 } from "./reviewctl/core.ts";
+import { POLLER_SOURCE } from "./queue.ts";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -86,6 +87,11 @@ const real = (p: string) => {
 };
 
 function commandAdd(args: Args): void {
+  // Manual intake hides why the automatic paths missed a PR; only the poller and review-requests sync may add rows.
+  if (args.source !== POLLER_SOURCE || !args.scope)
+    throw new ReviewCtlError(
+      "manual intake is disabled: PRs enter the ledger only via review-poller scopes or direct review requests",
+    );
   if (!(args.priority >= 0 && args.priority <= 100))
     throw new ReviewCtlError("priority must be from 0 to 100");
   if (args.execute && real(args.ledger) !== real(DEFAULT_LEDGER))

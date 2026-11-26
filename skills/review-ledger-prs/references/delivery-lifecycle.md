@@ -194,11 +194,9 @@ not cover unrelated cleanup or any human-only recovery boundary.
 6. Complete the full SIEM-only post-recovery window and postmortem before
    running the completion gate.
 
-The remediation PR is outside the original ledger URL's action scope. Once its
-exact live URL appears in current recovery evidence, add it through trusted
-exact-URL intake without separate user confirmation. Addition only queues that
-exact PR; once listed, never push to its head branch, and never review, approve,
-or merge it before the normal gates pass.
+The remediation PR is outside the original ledger URL's action scope. It is the
+agent's own PR, tracked by the authored-PR flow; never add it to the review
+ledger manually.
 
 ### Postmortem
 

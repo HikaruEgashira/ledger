@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 // Sync the authenticated user's own open PRs into authored_prs.jsonl (separate from the review ledger).
 import * as store from "./lib/store.ts";
-import { appendFileSync, mkdirSync, renameSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { org } from "./lib/org.ts";
 import { exec } from "./lib/util.ts";
+import type { Queue } from "./queue.ts";
 
 export const AUTHORED_LEDGER = join(resolve(import.meta.dir, "../.."), "authored_prs.jsonl");
 const PR_FIELDS = `
@@ -173,10 +173,8 @@ export function readAuthored(path = AUTHORED_LEDGER): AuthoredRow[] {
   return (store.readText(path) ?? "").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
 }
 
-function writeAuthored(path: string, rows: AuthoredRow[]): void {
-  const tmp = join(dirname(path), `.tmp-authored-${process.pid}`);
-  writeFileSync(tmp, rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""), { mode: 0o600 });
-  renameSync(tmp, path);
+export function writeAuthored(path: string, rows: AuthoredRow[]): void {
+  store.writeText(path, rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""));
 }
 
 function sync(path: string): AuthoredRow[] {
@@ -338,7 +336,8 @@ function check(path: string, url: string): number {
   }
   const row = toRow(live, new Date().toISOString());
   writeAuthored(path, [...rows, row].sort((a, b) => a.url.localeCompare(b.url)));
-  const ok = responded(row, readDispatched(path));
+  // GitHub is still computing mergeability; a reason derived from it is not a verdict yet.
+  const ok = live.mergeable !== "UNKNOWN" && responded(row, readDispatched(path));
   console.log(`${ok ? "done" : "still-mine"}\t${url}\t${row.status}\t${row.reason}`);
   return ok ? 0 : 1;
 }
@@ -350,6 +349,20 @@ function dispatch(path: string, url: string, reason: string, options: string[]):
   d[url] = { head: row.head_sha, reason, at: new Date().toISOString(), ...(options.length ? { options } : {}) };
   writeJson(dispatchPath(path), d);
   console.log(`dispatched\t${url}`);
+}
+
+/** Exhausted responders never reach a human by themselves; hand each stuck head over as a new question. */
+export function escalateStuck(path: string, q: Queue): string[] {
+  const d = readDispatched(path);
+  const out: string[] = [];
+  for (const r of readAuthored(path)) {
+    const j = q[r.url];
+    if (j?.kind !== "authored" || j.state !== "exhausted" || j.head !== r.head_sha) continue;
+    if (r.status !== "mine_changes_requested" || r.reason === "draft" || isDispatched(r, d)) continue;
+    dispatch(path, r.url, `自動対応を${j.attempts}回試しましたが ${r.reason} が解消しません。どうしますか？`, ["手元で対応する"]);
+    out.push(r.url);
+  }
+  return out;
 }
 
 const VIEW = `

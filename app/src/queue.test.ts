@@ -162,3 +162,18 @@ describe("queue CI key", () => {
     expect(ciKey(undefined)).toBe("ci:unknown");
   });
 });
+
+describe("authored done verdicts", () => {
+  it("re-queues a done own PR that is still my turn at the same key, then exhausts", () => {
+    const t = { ...T(9), kind: "authored" as const };
+    const done: Queue = { [t.url]: { ...t, state: "done", attempts: 1, enqueued_at: "" } };
+    expect(plan(done, [t], 0, dead).queue[t.url].state).toBe("waiting");
+    expect(plan(done, [], 0, dead).queue[t.url]).toBeUndefined();
+    const spent: Queue = { [t.url]: { ...t, state: "done", attempts: MAX_ATTEMPTS, enqueued_at: "" } };
+    expect(plan(spent, [t], 0, dead).queue[t.url].state).toBe("exhausted");
+  });
+  it("keeps a done review job done at the same key", () => {
+    const done: Queue = { [T(8).url]: { ...T(8), state: "done", attempts: 1, enqueued_at: "" } };
+    expect(plan(done, [T(8)], 0, dead).queue[T(8).url].state).toBe("done");
+  });
+});

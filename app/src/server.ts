@@ -4,13 +4,14 @@ import * as store from "./lib/store.ts";
 import { join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { readLedger, toCard } from "./ledger.ts";
-import { AUTHORED_LEDGER, authoredTargets, CLOSE, decide, pendingDecisions, readAuthored, readDecisions, readDispatched } from "./authored-prs.ts";
+import { AUTHORED_LEDGER, authoredTargets, CLOSE, decide, escalateStuck, pendingDecisions, readAuthored, readDecisions, readDispatched } from "./authored-prs.ts";
 import { examples, readHandled, watch, writeHandled } from "./auto-decide.ts";
 import { localConfig } from "./lib/org.ts";
 import type { Card } from "../webui/dashboard.ts";
 import { readLogs } from "./logs.ts";
 import { ingestLogs, openDb } from "./db.ts";
 import { CONCURRENCY, readQueue, tick } from "./queue.ts";
+import { nudgeTick } from "./nudge.ts";
 import { decideTask, pendingTasks, readTasks, TASK_LEDGER, taskCard, taskCards, taskTargets } from "./tasks.ts";
 
 const ROOT = resolve(import.meta.dir, "../..");
@@ -112,6 +113,7 @@ async function queueLoop() {
   for (;;) {
     try {
       tick(ROOT, readLedger(args.ledger), Date.now(), RESPOND ? authoredTargets(readAuthored(), readDispatched(), readDecisions()) : [], TASKS ? taskTargets(readTasks()) : []);
+      if (RESPOND) for (const u of escalateStuck(AUTHORED_LEDGER, readQueue(ROOT))) console.log(`escalated\t${u}`);
       failures = 0;
     } catch (e) {
       console.error(`error: queue tick: ${(e as Error).message}`);
@@ -127,6 +129,11 @@ async function loop() {
   for (;;) {
     await monitorTick();
     await deliveryTick();
+    try {
+      for (const u of nudgeTick(readLedger(args.ledger))) console.log(`nudged\t${u}`);
+    } catch (e) {
+      console.error(`error: nudge: ${(e as Error).message}`);
+    }
     try {
       ingestLogs(db, ROOT);
     } catch (e) {

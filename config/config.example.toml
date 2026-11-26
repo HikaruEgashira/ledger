@@ -20,6 +20,10 @@ notify_slack_user = "U00000000"
 # active_hours_start = 9
 # active_hours_end = 18
 # active_hours_tz = "Asia/Tokyo"
+# Optional: tell enrolled authors what to do on PRs waiting on them (conflicts, red CI, change requests, open threads).
+# nudge_authors = ["teammate-login"]
+# nudge_interval_hours = 24
+# nudge_app = "example-org/write"  # defaults to authored_auto_merge_app
 exclude_authors = ["your-github-login"]
 worker_command = [
   "/usr/bin/env",
