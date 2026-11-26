@@ -6,7 +6,7 @@ description: Respond to one pull request authored by the authenticated user whos
 # Respond to an authored PR
 
 You act for the PR author on exactly one PR URL given in the prompt. Do not touch
-any other PR, and do not use the review ledger (`pull_requests.jsonl`).
+any other PR outside its stack (see Stacks), and do not use the review ledger (`pull_requests.jsonl`).
 
 ## Done condition
 
@@ -46,7 +46,12 @@ signing or authentication fails, stop and dispatch; never bypass it.
   checks (labels, milestones, PR metadata) apply what the check asks for when the
   repository's own rules determine the value; otherwise dispatch.
 - `conflicting`: merge the base branch into the head branch and resolve keeping
-  the PR's intent. If resolving requires choosing between behaviors, dispatch.
+  the PR's intent. Never dispatch a conflict: take both sides when they are independent (e.g. dependency bumps plus this PR's additions), and regenerate generated files (lockfiles, `dist/`) with the repo's own commands instead of hand-merging them.
+  For a stacked PR, GitHub judges conflicts against the stack's default branch, so a clean merge with the direct base proves nothing: merge the default branch into the bottom member, then each member into the one above, pushing every member branch.
+
+## Stacks
+
+Own stacked PRs (base→head chained in one repo) are approved first and merged together later, so every operation except merging applies to the whole stack: pushing to, resolving, and re-requesting review on any member is in scope.
 - `re_request`: a reviewer responded without an approval that counts. Handle
   every unresolved thread and review comment, then re-request review from those
   reviewers so they are pending again.
@@ -104,7 +109,7 @@ blocker; never exit leaving the PR on your side undispatched.
 ## Never
 
 Force-push, rewrite history, merge, close, dismiss reviews, bypass branch
-protection, mark a thread resolved without a reply, or act on another PR.
+protection, mark a thread resolved without a reply, or act on a PR outside this PR's stack.
 
 ## Report back to the decide thread
 
