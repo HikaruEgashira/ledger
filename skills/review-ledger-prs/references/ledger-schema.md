@@ -1,7 +1,7 @@
 # Ledger intake schema
 
-`pull_requests.jsonl` (stored as a key in `review-factory.db`; read and write it only through `reviewctl`) contains one JSON object per in-scope PR. Trusted sync or
-exact-URL intake, separate from direct ledger editing, adds rows in this minimal
+`pull_requests.jsonl` (stored as a key in `review-factory.db`; read and write it only through `reviewctl`) contains one JSON object per in-scope PR. Trusted sync
+intake (review-poller or direct requests), separate from direct ledger editing, adds rows in this minimal
 form:
 
 ```json
@@ -59,29 +59,15 @@ authenticated login's latest review as `DISMISSED` (stale after a push), so
 reviews posted outside the ledger still get re-reviewed. These rows use
 `intake.mode: "dismissed-own-review"` and carry no `review_request`.
 
-The agent's trusted exact-URL intake is `$add-review-ledger-prs`. It accepts
-a live-verified exact URL already present in the current task context or in
-live evidence from a listed PR, without separate user confirmation, and
-records:
+Review-poller intake records `intake.mode: "trusted-exact-url"` with the
+required `intake.source: "review-poller"` and `intake.scope`. Manual intake is
+disabled: `intakectl add` rejects any call without the poller source and scope.
 
-```json
-{
-  "intake": {
-    "mode": "trusted-exact-url",
-    "reason": "Concise source and relevance of the exact URL",
-    "observed_at": "2026-07-24T04:00:00Z",
-    "base_sha": "40-hex SHA",
-    "head_sha": "40-hex SHA",
-    "pr_updated_at": "2026-07-24T03:59:55Z"
-  }
-}
-```
-
-Automated intake adds optional `intake.source` (e.g. `review-poller`) and
+Poller intake sets `intake.source` (e.g. `review-poller`) and
 `intake.scope` (a `[[scopes]]` name in `config/config.toml`); consumers must key on
 these, not on `reason` text.
 
-Existing `manual-explicit-url` records remain valid history. Exact-URL intake
+Existing `manual-explicit-url` records remain valid history. Intake
 does not edit, delete, reprioritize, or retarget existing rows.
 
 The `approval` record binds the GitHub review to an exact commit and freezes

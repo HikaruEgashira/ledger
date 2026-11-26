@@ -358,7 +358,13 @@ export function ghView(url: string, timeoutSec = 60): Obj {
     throw new ReviewCtlError(
       result.stderr.trim() || result.stdout.trim() || "gh pr view failed",
     );
-  const payload = JSON.parse(result.stdout);
+  let payload: Obj;
+  try {
+    payload = JSON.parse(result.stdout);
+  } catch {
+    // gh exits 0 with truncated output under GitHub load; transient, so one bad PR never aborts a sync.
+    throw new GhTimeout("gh pr view returned truncated JSON");
+  }
   payload.checks = normalizeChecks(payload.statusCheckRollup ?? []);
   delete payload.statusCheckRollup;
   payload.changeRequestReviews = standingChangeRequests(payload.reviews ?? []);

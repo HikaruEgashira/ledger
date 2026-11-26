@@ -119,8 +119,8 @@ branch. Use a new branch and separate PR from a normal implementation checkout
 outside this agent's checkout, with a signed commit and the repository's normal
 authenticated non-force push path. Stop on signing or authentication failure;
 do not bypass either requirement. Request review from the live author of the
-original ledger PR. Add the new exact URL through trusted exact-URL intake.
-Addition only places it in action scope; do not mark recovery successful until
+original ledger PR. Track it as an authored PR; never add it to the review
+ledger manually. Do not mark recovery successful until
 that PR's fix is merged, released, and verified.
 
 The corresponding post-merge reason codes are exactly:

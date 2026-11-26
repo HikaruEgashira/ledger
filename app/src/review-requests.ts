@@ -4,7 +4,6 @@ import { type Program, runProgram } from "./lib/cli.ts";
 import { escapeRe, org } from "./lib/org.ts";
 import {
   exec,
-  ExitCode,
   type Obj,
   parseTime,
   sameValue,
@@ -14,7 +13,6 @@ import {
   stableStringify,
   isBlank,
 } from "./lib/util.ts";
-import { main as intakeMain } from "./intakectl.ts";
 import {
   applyLive,
   DEFAULT_LEDGER,
@@ -338,7 +336,11 @@ export function compactRequest(row: Obj): Obj {
   };
 }
 
-function syncDirectRequests(current: Obj[], dismissed: Obj[], login: string): [Obj[], number] {
+function syncDirectRequests(
+  current: Obj[],
+  dismissed: Obj[],
+  login: string,
+): [Obj[], number, string[]] {
   const observedAt = timestamp();
   const currentByUrl = new Map(current.map((r) => [r.url as string, r]));
   const dismissedUrls = dismissed.map((r) => r.url as string).filter((u) => !currentByUrl.has(u));
@@ -347,6 +349,7 @@ function syncDirectRequests(current: Obj[], dismissed: Obj[], login: string): [O
     () => new Set(readLedger(DEFAULT_LEDGER).map((r) => r.url)),
   );
   const liveAdditions = new Map<string, Obj>();
+  const failures: string[] = [];
   const candidates = [...currentByUrl.keys(), ...dismissedUrls];
   for (const url of candidates.filter((u) => !existing.has(u)).sort()) {
     let live: Obj;
@@ -354,12 +357,13 @@ function syncDirectRequests(current: Obj[], dismissed: Obj[], login: string): [O
       live = ghView(url);
     } catch (e) {
       if (!(e instanceof ReviewCtlError)) throw e;
-      throw new ReviewRequestError(
-        `direct request could not be prepared for ledger intake: ${url}: ${e.message}`,
-      );
+      failures.push(`${url}: ${e.message}`);
+      continue;
     }
-    if (live.state !== "OPEN" || live.url !== url)
-      throw new ReviewRequestError(`direct request is no longer an open matching PR: ${url}`);
+    if (live.state !== "OPEN" || live.url !== url) {
+      failures.push(`${url}: no longer an open matching PR`);
+      continue;
+    }
     liveAdditions.set(url, live);
   }
   return withLedgerLock(DEFAULT_LEDGER, () => {
@@ -371,11 +375,9 @@ function syncDirectRequests(current: Obj[], dismissed: Obj[], login: string): [O
       let row = byUrl.get(url);
       let ledgerAction = "existing";
       if (!row) {
+        // A PR that failed its live check is retried next run; it must not block the other requests.
         const live = liveAdditions.get(url);
-        if (!live)
-          throw new ReviewRequestError(
-            `direct request intake lost its validated live state: ${url}`,
-          );
+        if (!live) continue;
         row = newRow(url, 50);
         row.intake = {
           mode: "direct-personal-review-request",
@@ -408,8 +410,7 @@ function syncDirectRequests(current: Obj[], dismissed: Obj[], login: string): [O
     for (const url of dismissedUrls) {
       if (byUrl.has(url)) continue;
       const live = liveAdditions.get(url);
-      if (!live)
-        throw new ReviewRequestError(`dismissed review intake lost its validated live state: ${url}`);
+      if (!live) continue;
       const row = newRow(url, 50);
       row.intake = {
         mode: "dismissed-own-review",
@@ -432,65 +433,55 @@ function syncDirectRequests(current: Obj[], dismissed: Obj[], login: string): [O
       events.push({ event: "REQUEST_REMOVED", ledger_action: "retained", ...compactRequest(row) });
     }
     writeLedger(DEFAULT_LEDGER, rows);
-    return [events, added] as [Obj[], number];
+    return [events, added, failures] as [Obj[], number, string[]];
   });
 }
 
-interface Args {
-  urls: string[];
-  priority: number;
-  reason: string;
-  execute: boolean;
-}
+type Args = Record<string, never>;
 
 const PROGRAM: Program<Args> = {
   prog: "review-requests",
   commands: {
     sync: {
       run: () => {
-        syncLedger();
-        const login = activeLogin();
-        const current = fetchCandidates(login, "review-requested", directRequest);
-        const dismissed = fetchCandidates(login, "reviewed-by", dismissedReview);
-        const [events, added] = syncDirectRequests(current, dismissed, login);
-        for (const event of events) printJson({ ...event, source: "direct_review_requests" });
-        printJson({
-          direct_request_count: current.length,
-          dismissed_review_count: dismissed.length,
-          ledger_added_count: added,
-          event: "SYNC_COMPLETE",
-          observed_at: timestamp(),
-          reviewer: login,
-          source: "direct_review_requests",
-          state: DEFAULT_LEDGER,
-        });
+        // Direct requests go first: the slow full-ledger refresh must never delay or block a new request.
+        const errors: string[] = [];
+        try {
+          const login = activeLogin();
+          const current = fetchCandidates(login, "review-requested", directRequest);
+          const dismissed = fetchCandidates(login, "reviewed-by", dismissedReview);
+          const [events, added, failures] = syncDirectRequests(current, dismissed, login);
+          for (const event of events) printJson({ ...event, source: "direct_review_requests" });
+          for (const failure of failures)
+            printJson({ event: "REQUEST_DEFERRED", error: failure, source: "direct_review_requests" });
+          printJson({
+            direct_request_count: current.length,
+            dismissed_review_count: dismissed.length,
+            ledger_added_count: added,
+            event: "SYNC_COMPLETE",
+            observed_at: timestamp(),
+            reviewer: login,
+            source: "direct_review_requests",
+            state: DEFAULT_LEDGER,
+          });
+          errors.push(...failures);
+        } catch (e) {
+          if (!(e instanceof ReviewCtlError) && !(e instanceof ReviewRequestError)) throw e;
+          errors.push(`direct requests: ${e.message}`);
+        }
+        try {
+          syncLedger();
+        } catch (e) {
+          if (!(e instanceof ReviewCtlError) && !(e instanceof ReviewRequestError)) throw e;
+          errors.push(`ledger: ${e.message}`);
+        }
+        if (errors.length) throw new ReviewRequestError(errors.join("; "));
       },
     },
     list: {
       run: () => {
         for (const row of readLedger(DEFAULT_LEDGER))
           if (!isBlank(row.review_request?.active)) printJson(compactRequest(row));
-      },
-    },
-    add: {
-      positionals: [{ name: "urls", nargs: "+" }],
-      options: {
-        priority: { kind: "int", default: 50 },
-        reason: { kind: "string", required: true },
-        execute: { kind: "flag" },
-      },
-      run: (args) => {
-        const argv = [
-          "add",
-          ...args.urls,
-          "--priority",
-          String(args.priority),
-          "--reason",
-          args.reason,
-        ];
-        if (args.execute) argv.push("--execute");
-        const code = intakeMain(argv);
-        if (code) throw new ExitCode(code);
       },
     },
   },

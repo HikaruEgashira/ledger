@@ -81,6 +81,5 @@ launchd が依頼の同期、業務ツールの同期、判断の DM、`serve`�
 - [レビュー運用手順](skills/review-ledger-prs/SKILL.md)
 - [承認・dispatch ポリシー](skills/review-ledger-prs/references/policy.md)
 - [delivery lifecycle](skills/review-ledger-prs/references/delivery-lifecycle.md)
-- [exact-URL intake](skills/add-review-ledger-prs/SKILL.md)
 - [業務ツールの同期](skills/sync-tasks/SKILL.md) と [対応](skills/respond-tasks/SKILL.md)
 - [判断の Slack DM](skills/decide-dm/SKILL.md)

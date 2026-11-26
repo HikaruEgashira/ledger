@@ -13,7 +13,7 @@ export const MAX_ATTEMPTS = 3;
 export const BACKOFF_MS = 10 * 60_000;
 /** Times an exhausted job gets a fresh budget after another worker succeeds (outage recovered). */
 export const MAX_REVIVALS = 3;
-const POLLER_SOURCE = "review-poller";
+export const POLLER_SOURCE = "review-poller";
 const LEGACY_REASON = "team poller";
 const DIRECT = "direct";
 const UNLANDED_APPROVALS = new Set(["write-rejected", "write-outcome-unknown"]);

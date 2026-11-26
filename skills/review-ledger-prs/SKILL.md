@@ -10,7 +10,7 @@ Keep `pull_requests.jsonl` as the sole action-scope boundary. Read
 [references/artifact-schema.md](references/artifact-schema.md) before writing
 evidence. Read [references/ledger-schema.md](references/ledger-schema.md) only
 when validating the trusted intake format; review agents never edit scope
-directly and may add an exact URL only through trusted intake. Read
+and never add PRs manually; rows enter only via review-poller or direct-request sync. Read
 [references/delivery-lifecycle.md](references/delivery-lifecycle.md) before
 acting on a merged PR. Merge is not a completion state.
 
@@ -25,10 +25,8 @@ user confirmation, use a normal implementation checkout outside this
 agent's checkout to create a new branch and a separate forward-fix PR containing the
 smallest root-cause remediation. Use a signed commit and the repository's
 normal authenticated non-force push path; stop rather than bypass signing or
-authentication failure. Add the exact remediation PR URL through
-`$add-review-ledger-prs`. Intake only queues the PR; after listing, its head
-branch is read-only to this review workflow and every review and approval gate
-still applies.
+authentication failure. The remediation PR is the agent's own
+PR: it is tracked by the authored-PR flow and never added to the review ledger.
 
 ## Parallel execution
 
