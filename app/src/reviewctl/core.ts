@@ -942,7 +942,7 @@ export function evaluate(
   }
 
   const blocking = blockingFindings(artifact);
-  const onlyCi = (list: string[]) => list.every((r) => r === failedReason || r === pendingReason);
+  const onlyCi = (list: string[]) => waitOnly(list, [failedReason, pendingReason]);
   if (artifact.verdict === "human_required") {
     const dispatch = artifact.human_dispatch;
     const reasonCode = dispatch.reason_code;
@@ -964,7 +964,10 @@ export function evaluate(
     );
     if (incomplete.length && !["unavailable-evidence", "ambiguous-intent"].includes(reasonCode))
       threadReasons.push("agent review is incomplete: " + incomplete.join(", "));
-    if (reasons.length || threadReasons.length) return ["review", [...reasons, ...threadReasons]];
+    if (reasons.length || threadReasons.length) {
+      const blockers = [...reasons, ...threadReasons];
+      return [onlyCi(blockers) ? "wait_ci" : "review", blockers];
+    }
     return ["human_required", [reasonCode, dispatch.detail]];
   }
 
@@ -975,9 +978,19 @@ export function evaluate(
     if (pendingReason) reasons.push(pendingReason);
     return [onlyCi(reasons) ? "wait_ci" : "review", reasons];
   }
-  if (reasons.length) return ["review", reasons];
+  if (reasons.length) return [onlyCi(reasons) ? "wait_ci" : "review", reasons];
   if (pending.length) return ["wait_ci", [pendingReason!]];
   return ["approve", []];
+}
+
+const TRANSIENT_MERGE_REASONS = new Set([
+  "pull request mergeability is UNKNOWN",
+  "pull request merge state is UNKNOWN",
+]);
+
+/** True when every blocker resolves on a later sync without agent work (CI or GitHub's lazy mergeability). */
+export function waitOnly(reasons: string[], ci: (string | null | undefined)[]): boolean {
+  return reasons.every((r) => TRANSIENT_MERGE_REASONS.has(r) || (!!r && ci.includes(r)));
 }
 
 export const STATUS_FOR_ACTION: Record<string, string> = {
