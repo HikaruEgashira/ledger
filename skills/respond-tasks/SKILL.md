@@ -39,7 +39,7 @@ bun app/src/tasks.ts check <ID>   # exit 0 = done
 
 ## Memory
 
-Read first: the full item (conversation or ticket and its comments), `logs/decision-memory.md` (generalized past human answers), and the task's `note` and `answer` (a human answer to your earlier question is the instruction for this run).
+Read first: the full item (conversation or ticket and its comments), `logs/decision-memory.md` (generalized past human answers), and the task's `note` and `answer` (a human answer is the instruction for this run; see [references/human-decisions.md](references/human-decisions.md)).
 
 ## Triage (ball `triage`)
 
@@ -82,13 +82,7 @@ The PR then lives in the own-PR ledger like any other; do not review or merge it
 
 ## Defer to the human
 
-Dispatch instead of acting when the reply needs a decision only the user can make (commitment, priority, people, money, policy), an irreversible action, data whose security level forbids the destination, or you are unsure what is asked:
-
-```sh
-bun app/src/tasks.ts dispatch <ID> --reason "<question in Japanese>" --option "<choice A>" --option "<choice B>"
-```
-
-Check `logs/decision-memory.md` first; if a rule decides it, act and say so in the note.
+Follow [references/human-decisions.md](references/human-decisions.md) with `<ctl>` = `bun app/src/tasks.ts`: check `logs/decision-memory.md` first, then dispatch a closed question when only the user can decide.
 
 ## Guardrails
 
@@ -98,10 +92,4 @@ Check `logs/decision-memory.md` first; if a rule decides it, act and say so in t
 
 ## Report back to the decide thread
 
-When this run carried out a human decision (an `answer` on the task / a decision for this PR), check where it was asked and reply there with one line in Japanese: what you did or why nothing was needed, followed by every related link (the comments, PRs, Jira issues, Slack messages/threads, pages you touched or relied on) as short labels in Slack link syntax `<url|label>` (Jira key, `repo#number`, `#channel スレッド`, `Confluence: <title>`), never bare full URLs.
-
-```sh
-bun app/src/decide-dm.ts thread <task id or PR URL>   # prints: channel<TAB>ts<TAB>choice
-```
-
-Reply in that thread with `slack_send_message` (`thread_ts` = ts). No thread printed: skip.
+When this run carried out a human decision, report back as [references/human-decisions.md](references/human-decisions.md) says.

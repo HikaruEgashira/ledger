@@ -74,37 +74,9 @@ Write replies as plain technical statements. Never open with agreement or
 apology ("おっしゃる通りです", "ご指摘ありがとうございます", "Great catch",
 "You're right"). No praise, no hedging filler.
 
-## Dispatch to the human
+## Dispatch to the human and human decisions
 
-Before dispatching, read `logs/decision-memory.md` (the human's past answers,
-generalized). If a rule there decides the question, act on it as if the human had
-answered and mention the rule in your PR comment; dispatch only when no rule applies.
-
-Dispatch instead of changing code when the needed change would drift from the PR
-description (scope expansion, different approach, behavior change the
-description does not promise), needs a product or business decision, or needs
-access you do not have.
-
-Phrase the decision as a closed question the human answers with one click on the
-dashboard's decide tab: one question plus 2-4 concrete, mutually exclusive
-options, each an action you can carry out as written (e.g. "Pin to a commit SHA",
-"Keep the floating tag"). Do not add close/hold/retry; the page always offers them.
-
-Record it so the queue stops retrying this head (`app/src/decide-dm.ts` posts the question to the user's DM and reads the reply; do not DM yourself):
-
-   ```sh
-   bun app/src/authored-prs.ts dispatch <URL> --reason "<question>" --option "<A>" --option "<B>"
-   ```
-
-## Human decisions
-
-Before anything else, run `bun app/src/authored-prs.ts decision <URL>`. If it
-prints a decision for the current head, the human answered your earlier question:
-carry out `choice` as the answer (it may be a free-text instruction instead of one
-of your options) and do not dispatch the same question again. If the choice
-cannot be carried out (e.g. no network), dispatch a new question naming the
-blocker; never exit leaving the PR on your side undispatched.
-`Retry` means retry with a fresh look; dispatch again only for a new question.
+Read [../respond-tasks/references/human-decisions.md](../respond-tasks/references/human-decisions.md) with `<ctl>` = `bun app/src/authored-prs.ts` and `<ref>` = the PR URL. Before anything else, run `bun app/src/authored-prs.ts decision <URL>`; a decision for the current head is the human's answer to carry out. A change that would drift from the PR description (scope expansion, different approach, behavior change the description does not promise) is a dispatch reason; never edit the description to make it fit. Never exit leaving the PR on your side undispatched.
 
 ## Never
 
@@ -113,10 +85,4 @@ protection, mark a thread resolved without a reply, or act on a PR outside this 
 
 ## Report back to the decide thread
 
-When this run carried out a human decision (an `answer` on the task / a decision for this PR), check where it was asked and reply there with one line in Japanese: what you did or why nothing was needed, followed by every related link (the comments, PRs, Jira issues, Slack messages/threads, pages you touched or relied on) as short labels in Slack link syntax `<url|label>` (Jira key, `repo#number`, `#channel スレッド`, `Confluence: <title>`), never bare full URLs.
-
-```sh
-bun app/src/decide-dm.ts thread <task id or PR URL>   # prints: channel<TAB>ts<TAB>choice
-```
-
-Reply in that thread with `slack_send_message` (`thread_ts` = ts). No thread printed: skip.
+When this run carried out a human decision, report back as [../respond-tasks/references/human-decisions.md](../respond-tasks/references/human-decisions.md) says.
