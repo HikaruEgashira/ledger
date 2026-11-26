@@ -2,7 +2,8 @@
 import { join, resolve } from "node:path";
 import * as store from "./lib/store.ts";
 import { localConfig, org } from "./lib/org.ts";
-import { ghWrite, PRE_APPROVAL_REVIEW_CHECKS, runGh } from "./reviewctl/core.ts";
+import { PRE_APPROVAL_REVIEW_CHECKS, runGh } from "./reviewctl/core.ts";
+import { exec } from "./lib/util.ts";
 
 const ROOT = resolve(import.meta.dir, "../..");
 export const NUDGE_STATE = join(ROOT, "nudges.json");
@@ -70,8 +71,11 @@ export function nudgeTick(rows: Row[], now = Date.now()): string[] {
       const body = message(row.live.author.login, todo(row, fetchThreads(row.url)));
       // Nothing concrete to ask: record the check so the PR is not re-fetched every loop.
       if (body) {
-        const r = ghWrite(["pr", "comment", row.url, "--body", body]);
-        if (r.returncode) throw new Error(r.stderr.trim() || "gh pr comment failed");
+        // The server's gh token is read-only; post with the write-capable app.
+        const app = localConfig().nudge_app ?? localConfig().authored_auto_merge_app;
+        if (typeof app !== "string" || !app) throw new Error("nudge_app / authored_auto_merge_app is not set");
+        const r = exec(["gh", "pr", "comment", row.url, "--body", body], { env: { ...process.env, GHTKN_APP: app } });
+        if (r.code) throw new Error(r.stderr.trim() || "gh pr comment failed");
         sent.push(row.url);
       }
       state[row.url] = { at: new Date(now).toISOString(), head: row.live.headRefOid ?? "" };
