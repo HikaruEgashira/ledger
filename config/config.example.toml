@@ -31,6 +31,13 @@ notify_slack_user = "U00000000"
 # nudge_authors = ["teammate-login"]
 # nudge_interval_hours = 24
 # nudge_app = "example-org/write"  # defaults to authored_auto_merge_app
+# Optional: coexist with another reviewer of the same login (e.g. a remote ledger).
+# direct_requests = false skips intake of direct review requests; exclude_reviewers keeps the
+# scope poller off PRs that request or already have a review from these logins;
+# disabled_jobs (launchd/<job>.plist.in names) are unloaded and not rendered by scripts/install-launchd.sh.
+# direct_requests = false
+# exclude_reviewers = ["your-github-login"]
+# disabled_jobs = ["review-request-sync"]
 exclude_authors = ["your-github-login"]
 worker_command = [
   "/usr/bin/env",
