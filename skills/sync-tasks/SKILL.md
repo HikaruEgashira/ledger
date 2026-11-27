@@ -14,7 +14,8 @@ The prompt lists this run's sources: for each, its connector file (`skills/sourc
    - `review`: someone asked me to do, decide, check or answer something.
    - `respond`: I asked someone (named or not) for something.
 3. Alert channels the prompt lists are an exception to the axes above: every alert there is `review` (investigating it is my job). Never skip them as bot notices.
-4. Skip what `logs/decision-memory.md` says the human never wants as a task (kinds of bot reminders and notices, for example); judge from the sender and text only. Do not read whole threads or classify here; conversations go in as `triage`, the worker judges them.
+4. People: the prompt may list `People` (`name`, `slack`, `email`, `github`). Collect their requests too, as for me but with that person as "me" (Slack `with:<slack>`, Jira `assignee = "<email>"`, GitHub per its connector), `review` axis only, with `"for": "<name>"`. An item that also involves me goes in once without `for`.
+5. Skip what `logs/decision-memory.md` says the human never wants as a task (kinds of bot reminders and notices, for example); judge from the sender and text only. Do not read whole threads or classify here; conversations go in as `triage`, the worker judges them.
 
 If a source fails, keep going with the others, upsert what they returned, and exit non-zero.
 
@@ -23,7 +24,7 @@ If a source fails, keep going with the others, upsert what they returned, and ex
 Write one JSON object per line to stdin of `bun app/src/tasks.ts upsert`, all sources in one call, with each source's cursor and keyword flags as its connector says:
 
 ```json
-{"source":"<name>","axis":"review","url":"<item URL: thread root permalink / issue URL>","title":"<one-line request, Japanese>","counterpart":"<display name>","activity":"<ISO time of the latest activity>","ball":"triage","summary":"<2-3 lines of what is asked>"}
+{"source":"<name>","axis":"review","url":"<item URL: thread root permalink / issue URL>","title":"<one-line request, Japanese>","counterpart":"<display name>","activity":"<ISO time of the latest activity>","ball":"triage","for":"<People name; omit for mine>","summary":"<2-3 lines of what is asked>"}
 ```
 
 ```sh

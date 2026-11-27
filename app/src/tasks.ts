@@ -30,6 +30,8 @@ export interface TaskRow {
   url: string;
   title: string;
   counterpart: string;
+  /** Watched person (config task_people name) whose task this is; absent = mine. */
+  for?: string;
   ball: Ball;
   /** Source activity key (latest message time, issue updated); a change is new work. */
   activity: string;
@@ -63,6 +65,7 @@ export interface Incoming {
   counterpart: string;
   activity: string;
   ball: Ball;
+  for?: string;
   summary?: string;
 }
 /** The id is derived from the URL, so DLP masking of a raw ts in agent output cannot corrupt the dedupe key. */
@@ -78,6 +81,8 @@ export function validate(x: any): Incoming {
   if (!["review", "respond"].includes(x.axis)) throw new Error(`invalid axis: ${x.id}`);
   if (!BALLS.includes(x.ball)) throw new Error(`invalid ball: ${x.id}`);
   if (typeof x.activity !== "string" || !x.activity) throw new Error(`missing activity: ${x.id}`);
+  const people = taskPeople().map((p) => p.name);
+  if (x.for != null && !people.includes(x.for)) throw new Error(`invalid for: ${x.id}`);
   return { ...x, title: String(x.title ?? "").slice(0, 200), counterpart: String(x.counterpart ?? "") };
 }
 
@@ -292,6 +297,13 @@ const sourceKeywords = (name: string) => sourceList(name, "keywords");
 // Alert channels: every bot alert there is a request to investigate, whoever it mentions.
 const sourceAlertChannels = (name: string) => sourceList(name, "alert_channels");
 
+/** Other people whose requests also enter this inbox (visibility only; workers never act as them). */
+export interface Person { name: string; slack?: string; email?: string; github?: string }
+export function taskPeople(): Person[] {
+  const v: unknown = localConfig().task_people;
+  return Array.isArray(v) ? v.filter((p): p is Person => typeof p?.name === "string" && !!p.name.trim()) : [];
+}
+
 export function syncPrompt(path: string, sources = enabledSources(), now = Date.now()): string {
   const state = store.readJson<Record<string, string>>(keywordStatePath(path), {});
   const plan = sources.map((s) => ({
@@ -303,7 +315,8 @@ export function syncPrompt(path: string, sources = enabledSources(), now = Date.
     keywords: keywordPlan(sourceKeywords(s.name), state, now, KEYWORDS_PER_RUN, s.name),
     alert_channels: sourceAlertChannels(s.name),
   }));
-  return `Read ${SYNC_SKILL} and follow it exactly once, then exit. Sources this run: ${JSON.stringify(plan)}`;
+  const people = taskPeople();
+  return `Read ${SYNC_SKILL} and follow it exactly once, then exit. Sources this run: ${JSON.stringify(plan)}` + (people.length ? ` People: ${JSON.stringify(people)}` : "");
 }
 
 function sync(path: string): number {
@@ -459,7 +472,7 @@ export function taskCard(r: TaskRow) {
     priority: null,
     title: r.title,
     author: null,
-    action: [r.counterpart, r.follow_up_at && r.ball === "theirs" ? `follow-up ${r.follow_up_at.slice(5, 16)}` : null].filter(Boolean).join(" · ") || null,
+    action: [r.for ? `for ${r.for}` : null, r.counterpart, r.follow_up_at && r.ball === "theirs" ? `follow-up ${r.follow_up_at.slice(5, 16)}` : null].filter(Boolean).join(" · ") || null,
     last_error: null,
     updated_at: r.synced_at,
     added_at: r.intake_at,

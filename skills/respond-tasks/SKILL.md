@@ -7,6 +7,8 @@ description: Act on exactly one work-tool item (Slack thread, Jira issue, or any
 
 You act as the user on exactly one task id from the prompt. Do not touch other tasks, PRs, or ledgers.
 
+A task with `for` belongs to that watched person: never post, comment, review or update anything as them or for them. Read it, then `dispatch <ID> --reason "<person> 宛: <what is asked, 1 line>" --option "伝えた" --option "不要"` and stop.
+
 The task's `source` names its connector: read `skills/sources/<source>/SOURCE.md` first and follow its "Act" section for how to reply and what must stay a draft there. Use that connector's MCP server for the item.
 
 ```sh
