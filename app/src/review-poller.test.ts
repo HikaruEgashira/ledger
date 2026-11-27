@@ -37,6 +37,10 @@ describe("loadScopes", () => {
     expect(s[0].exclude_authors).toEqual(["me"]);
     expect(qualifier(s[0], ORG)).toBe(`repo:${ORG}/repo -author:me`);
   });
+  it("excludes repositories", () => {
+    const s = loadScopes({ ...structuredClone(config), exclude_repos: [`${ORG}/skip`] }, workspace(), ORG, "cfg");
+    expect(qualifier(s[0], ORG)).toBe(`repo:${ORG}/repo -author:me -repo:${ORG}/skip`);
+  });
   it("excludes PRs owned by another reviewer", () => {
     const s = loadScopes({ ...structuredClone(config), exclude_reviewers: ["bot"] }, workspace(), ORG, "cfg");
     expect(qualifier(s[0], ORG)).toBe(`repo:${ORG}/repo -author:me -review-requested:bot -reviewed-by:bot`);

@@ -39,6 +39,8 @@ notify_slack_user = "U00000000"
 # disabled_jobs (launchd/<job>.plist.in names) are unloaded and not rendered by scripts/install-launchd.sh.
 # direct_requests = false
 # exclude_reviewers = ["your-github-login"]
+# Repositories the scope poller never takes in (any scope).
+# exclude_repos = ["example-org/skip-repo"]
 # disabled_jobs = ["review-request-sync"]
 # gh binary for launchd jobs; set it when `gh` on PATH is a wrapper that swaps identity (it decides who @me is).
 # gh_path = "/path/to/gh"

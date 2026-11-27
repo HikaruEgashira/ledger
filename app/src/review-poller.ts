@@ -24,7 +24,7 @@ query($q: String!, $cursor: String) {
 }
 `;
 
-export type Scope = { name: string; profile: string; repo?: string; repos?: string[]; authors?: string[]; exclude_authors?: string[]; exclude_reviewers?: string[]; title?: string };
+export type Scope = { name: string; profile: string; repo?: string; repos?: string[]; authors?: string[]; exclude_authors?: string[]; exclude_reviewers?: string[]; exclude_repos?: string[]; title?: string };
 export class PollerExit extends Error {}
 export type Gh = (args: string[]) => string;
 export type Enqueue = (url: string, scope: string) => boolean;
@@ -45,6 +45,9 @@ export function loadScopes(config: Record<string, any>, root = ROOT, orgName = o
     s.exclude_authors = [...(config.exclude_authors ?? []), ...(s.exclude_authors ?? [])];
     // PRs that request or already carry a review from these logins belong to another reviewer (e.g. a remote ledger).
     s.exclude_reviewers = [...(config.exclude_reviewers ?? []), ...(s.exclude_reviewers ?? [])];
+    s.exclude_repos = [...(config.exclude_repos ?? []), ...(s.exclude_repos ?? [])];
+    if (!s.exclude_repos.every((r) => r.startsWith(`${orgName}/`)))
+      throw new PollerExit(`${where}: scope ${s.name} exclude_repos must be under ${orgName}`);
   }
   return scopes;
 }
@@ -60,6 +63,7 @@ export function qualifier(s: Scope, orgName = org()): string {
   return [
     base,
     ...(s.exclude_authors ?? []).map((a) => `-author:${a}`),
+    ...(s.exclude_repos ?? []).map((r) => `-repo:${r}`),
     ...(s.exclude_reviewers ?? []).flatMap((r) => [`-review-requested:${r}`, `-reviewed-by:${r}`]),
   ].join(" ");
 }
