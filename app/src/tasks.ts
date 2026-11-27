@@ -125,7 +125,7 @@ export function merge(rows: TaskRow[], incoming: Incoming[], now: string): { row
 export interface TaskTarget {
   url: string; // queue key: the task id
   kind: "task";
-  scope: Axis;
+  scope: Axis | "watched";
   head: string;
   updated: string;
   priority: number;
@@ -176,7 +176,8 @@ export function taskTargets(rows: TaskRow[], now = Date.now()): TaskTarget[] {
     out.push({
       url: r.id,
       kind: "task",
-      scope: r.axis,
+      // Watched people's tasks only ever get read and dispatched, so they route as their own scope.
+      scope: r.for ? "watched" : r.axis,
       head: [r.activity, ...members.map((m) => m.activity)].join("|"),
       updated: [r.ball, due ? r.follow_up_at : "", r.answer?.at ?? ""].join("|"),
       priority: r.axis === "review" ? 55 : 65,

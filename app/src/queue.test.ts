@@ -158,8 +158,31 @@ describe("queue CI key", () => {
   });
   it("keys green, red and missing checks distinctly", () => {
     expect(ciKey([{ name: "a", state: "success" }])).toBe("ci:green");
-    expect(ciKey([{ name: "b", state: "failure" }, { name: "a", state: "pending" }])).toBe("ci:failure:b,pending:a");
+    expect(ciKey([{ name: "b", state: "failure" }, { name: "a", state: "pending" }])).toBe("ci:failure:b,pending");
+  });
+  it("ignores pending progress and the agent's own approval checks", () => {
+    const two = ciKey([{ name: "a", state: "pending" }, { name: "b", state: "pending" }]);
+    expect(ciKey([{ name: "a", state: "success" }, { name: "b", state: "pending" }])).toBe(two);
+    expect(ciKey([{ name: "a", state: "success" }, { name: "require-approval", state: "failure" }])).toBe("ci:green");
     expect(ciKey(undefined)).toBe("ci:unknown");
+  });
+});
+
+describe("own writes", () => {
+  it("does not re-run a clean review because its own approval bumped updatedAt", () => {
+    const t: Target = { url: "u", scope: "s", head: "h", updated: "t1|ci:green", priority: 50 };
+    const r = plan({}, [t], 0, dead);
+    r.start[0].exit_code = 0;
+    const after = plan(r.queue, [{ ...t, updated: "t2|ci:green" }], 1, dead);
+    expect(after.start).toEqual([]);
+    expect(after.queue.u.state).toBe("done");
+    expect(plan(after.queue, [{ ...t, updated: "t3|ci:green" }], 2, dead).start.length).toBe(1);
+  });
+  it("still re-runs when CI moved during the review", () => {
+    const t: Target = { url: "u", scope: "s", head: "h", updated: "t1|ci:pending", priority: 50 };
+    const r = plan({}, [t], 0, dead);
+    r.start[0].exit_code = 0;
+    expect(plan(r.queue, [{ ...t, updated: "t2|ci:green" }], 1, dead).start.length).toBe(1);
   });
 });
 

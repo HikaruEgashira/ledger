@@ -15,6 +15,8 @@ export const HAIKU: Tier = { model: "haiku", effort: "high" };
 // Seeds; learned entries override them, including demotions back to worker_command.
 export const SCOPE_MODEL: Record<string, Tier> = {
   "authored-conflicting": HAIKU,
+  "authored-needs_reviewer": HAIKU,
+  watched: HAIKU,
 };
 // Only kinds whose exit code is a live re-check (the ball left the author / task closed) are a trustworthy verifier.
 export const GATED_KINDS = new Set(["authored", "task"]);

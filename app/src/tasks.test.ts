@@ -40,6 +40,7 @@ describe("tasks", () => {
     const base = merge([], [I()], now).rows[0]!;
     const t = Date.parse("2026-11-25T00:00:00Z");
     expect(taskTargets([base], t).length).toBe(1);
+    expect(taskTargets([{ ...base, for: "alice" }], t)[0]!.scope).toBe("watched");
     expect(taskTargets([{ ...base, ball: "theirs", follow_up_at: "2026-11-26T00:00:00Z" }], t)).toEqual([]);
     expect(taskTargets([{ ...base, ball: "theirs", follow_up_at: "2026-11-24T12:00:00Z" }], t).length).toBe(1);
     const asked: TaskRow = { ...base, ball: "human", question: "q" };

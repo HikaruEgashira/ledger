@@ -324,7 +324,8 @@ export function decide(path: string, url: string, head: string, choice: string, 
 }
 
 /** Re-fetch one PR, store it, and exit 0 only when the ball left the author. */
-function check(path: string, url: string): number {
+// strict=false is the pre-agent check: a dispatched PR still needs the agent when its human answer arrives.
+function check(path: string, url: string, strict = true): number {
   const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/.exec(url);
   if (!m) throw new Error(`invalid PR URL: ${url}`);
   const live = JSON.parse(gh(["api", "graphql", "-f", `query=${ONE}`, "-F", `owner=${m[1]}`, "-F", `repo=${m[2]}`, "-F", `n=${m[3]}`])).data.repository.pullRequest;
@@ -337,7 +338,7 @@ function check(path: string, url: string): number {
   const row = toRow(live, new Date().toISOString());
   writeAuthored(path, [...rows, row].sort((a, b) => a.url.localeCompare(b.url)));
   // GitHub is still computing mergeability; a reason derived from it is not a verdict yet.
-  const ok = live.mergeable !== "UNKNOWN" && responded(row, readDispatched(path));
+  const ok = live.mergeable !== "UNKNOWN" && (strict ? responded(row, readDispatched(path)) : row.status !== "mine_changes_requested");
   console.log(`${ok ? "done" : "still-mine"}\t${url}\t${row.status}\t${row.reason}`);
   return ok ? 0 : 1;
 }
@@ -557,11 +558,12 @@ if (import.meta.main) {
     },
   });
   const cmd = positionals[0] ?? "list";
-  if (!["sync", "list", "merge", "check", "dispatch", "decision"].includes(cmd) || (["check", "dispatch", "decision"].includes(cmd) && !positionals[1]) || (cmd === "dispatch" && !values.reason)) {
+  if (!["sync", "list", "merge", "check", "precheck", "dispatch", "decision"].includes(cmd) || (["check", "precheck", "dispatch", "decision"].includes(cmd) && !positionals[1]) || (cmd === "dispatch" && !values.reason)) {
     console.error("usage: authored-prs.ts [--ledger PATH] {sync|list [--all]|merge [--yes] [URL...]|check URL|dispatch URL --reason TEXT [--option TEXT]...|decision URL}");
     process.exit(2);
   }
   if (cmd === "check") process.exit(check(values.ledger!, positionals[1]));
+  if (cmd === "precheck") process.exit(check(values.ledger!, positionals[1], false));
   if (cmd === "dispatch") process.exit((dispatch(values.ledger!, positionals[1], values.reason!, values.option ?? []), 0));
   if (cmd === "decision") {
     const a = readDecisions(values.ledger!)[positionals[1]];

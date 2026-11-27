@@ -62,12 +62,17 @@ export function rowScope(row: Row): string | null {
   return null;
 }
 
-/** CI outcome a hold waited on: a check finishing changes no head or updatedAt, so it must change the job key. */
+// The agent's own approval turns these green, so they must not re-trigger the job that wrote it.
+const OWN_CHECKS = new Set(["validate-review", "require-approval"]);
+/** CI outcome a hold waited on: a check finishing changes no head or updatedAt, so it must change the job key. Pending progress is not an outcome. */
 export function ciKey(checks: unknown): string {
   if (!Array.isArray(checks)) return "ci:unknown";
-  const red = checks.filter((c) => c?.state !== "success").map((c) => `${c.state}:${c.name}`).sort();
-  return red.length ? `ci:${red.join(",")}` : "ci:green";
+  const rest = checks.filter((c) => !OWN_CHECKS.has(c?.name));
+  const failed = rest.filter((c) => c?.state !== "success" && c?.state !== "pending").map((c) => `${c.state}:${c.name}`).sort();
+  const pending = rest.some((c) => c?.state === "pending") ? ["pending"] : [];
+  return failed.length || pending.length ? `ci:${[...failed, ...pending].join(",")}` : "ci:green";
 }
+const ciPart = (updated: string) => updated.slice(updated.indexOf("|") + 1);
 
 /** Rows a worker should process now: scoped or directly requested, queued or awaiting post-approval verification. */
 export function targets(rows: Row[]): Target[] {
@@ -115,8 +120,11 @@ export function plan(
       succeeded ||= job.state === "running" && job.exit_code === 0;
       continue; // processed: the row left the queue
     }
+    // A review that exited clean caused the only activity on its own PR (approval, comments) unless head or CI moved.
+    const ownWrite = !job.kind && job.state === "running" && job.exit_code === 0 && t.head === job.head && ciPart(t.updated) === ciPart(job.updated);
     // A new head, PR activity (e.g. resolved threads) or a CI outcome change is new work with a fresh budget.
-    if (t.head !== job.head || t.updated !== job.updated) continue;
+    if (t.head !== job.head || (t.updated !== job.updated && !ownWrite)) continue;
+    if (ownWrite) job.updated = t.updated;
     if (job.state === "running") {
       // A clean exit is done even without new evidence: the worker held the PR (CI red, open threads) and only a PR or CI change is new work.
       const ok = job.exit_code === 0;
@@ -194,7 +202,7 @@ function argv(root: string, job: Job): string[] {
   const config = localConfig(join(root, "config/config.toml"));
   const command: string[] = config.worker_command;
   if (job.kind === "task")
-    return oneShot(command, `Read ${TASK_SKILL} and follow it for exactly this task (${job.scope} axis): ${job.url}`, tierFor(job.scope));
+    return oneShot(command, `Read ${TASK_SKILL} and follow it for exactly this task (${job.scope === "watched" ? "a watched person's task" : `${job.scope} axis`}): ${job.url}`, tierFor(job.scope));
   if (job.kind === "authored")
     return oneShot(command, `Read ${RESPOND_SKILL} and follow it for exactly this pull request you authored: ${job.url}`, tierFor(job.scope));
   const scope = (config.scopes ?? []).find((s: any) => s.name === job.scope);
@@ -242,7 +250,8 @@ const readExit = (root: string) => (url: string) => {
 // The respond worker's own exit is not the verdict: the job is done only when a live re-check shows the ball left the author.
 // The shell exits with the verdict itself: recordExit takes the child's exit code, so a trailing echo would turn every failure into 0.
 const SCRIPT = '"$@"; c=$?; echo $c > "$QUEUE_EXIT_FILE"; exit $c';
-const AUTHORED_SCRIPT = '"$@"; "$QUEUE_BUN" "$QUEUE_AUTHORED" check "$QUEUE_URL"; c=$?; echo $c > "$QUEUE_EXIT_FILE"; exit $c';
+// A live pre-check skips the agent when the ball already left the author since the ledger was synced.
+const AUTHORED_SCRIPT = '"$QUEUE_BUN" "$QUEUE_AUTHORED" precheck "$QUEUE_URL" && { echo 0 > "$QUEUE_EXIT_FILE"; exit 0; }; "$@"; "$QUEUE_BUN" "$QUEUE_AUTHORED" check "$QUEUE_URL"; c=$?; echo $c > "$QUEUE_EXIT_FILE"; exit $c';
 const TASK_SCRIPT = '"$@"; "$QUEUE_BUN" "$QUEUE_TASKS" check "$QUEUE_URL"; c=$?; echo $c > "$QUEUE_EXIT_FILE"; exit $c';
 
 export function tick(root: string, rows: Row[], now = Date.now(), authored: Target[] = [], tasks: Target[] = []): Job[] {
