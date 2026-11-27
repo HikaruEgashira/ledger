@@ -942,7 +942,9 @@ export function evaluate(
   }
 
   const blocking = blockingFindings(artifact);
-  const onlyCi = (list: string[]) => list.every((r) => r === failedReason || r === pendingReason);
+  // GitHub computes mergeability lazily; UNKNOWN resolves on a later sync without a new review.
+  const lazy = new Set(["pull request mergeability is UNKNOWN", "pull request merge state is UNKNOWN"]);
+  const onlyCi = (list: string[]) => list.every((r) => r === failedReason || r === pendingReason || lazy.has(r));
   if (artifact.verdict === "human_required") {
     const dispatch = artifact.human_dispatch;
     const reasonCode = dispatch.reason_code;
@@ -964,7 +966,10 @@ export function evaluate(
     );
     if (incomplete.length && !["unavailable-evidence", "ambiguous-intent"].includes(reasonCode))
       threadReasons.push("agent review is incomplete: " + incomplete.join(", "));
-    if (reasons.length || threadReasons.length) return ["review", [...reasons, ...threadReasons]];
+    if (reasons.length || threadReasons.length) {
+      const blockers = [...reasons, ...threadReasons];
+      return [onlyCi(blockers) ? "wait_ci" : "review", blockers];
+    }
     return ["human_required", [reasonCode, dispatch.detail]];
   }
 
@@ -975,8 +980,8 @@ export function evaluate(
     if (pendingReason) reasons.push(pendingReason);
     return [onlyCi(reasons) ? "wait_ci" : "review", reasons];
   }
-  if (reasons.length) return ["review", reasons];
-  if (pending.length) return ["wait_ci", [pendingReason!]];
+  if (pending.length) reasons.push(pendingReason!);
+  if (reasons.length) return [onlyCi(reasons) ? "wait_ci" : "review", reasons];
   return ["approve", []];
 }
 
