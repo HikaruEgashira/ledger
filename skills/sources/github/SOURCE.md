@@ -12,10 +12,10 @@ urls:
 
 ## Collect
 
-Me: nothing (my review requests and PRs belong to the PR ledgers). A person's `id` is their GitHub login. Use the `gh` CLI, never MCP:
+Me: nothing (my review requests and PRs belong to the PR ledgers). A person's `id` is their GitHub login. List only requests to them as an individual (team requests excluded, as for me):
 
 ```sh
-gh search prs --review-requested=<id> --state open --json url,title,author,updatedAt --limit 100
+bun app/src/review-requests.ts direct <id>
 ```
 
 One task per PR: `axis: "review"`, `url` = PR URL, `activity` = `updatedAt`, `counterpart` = author login, `ball: "mine"`. A PR no longer listed is not emitted; it stays until its next activity.

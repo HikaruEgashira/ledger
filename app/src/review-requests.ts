@@ -437,7 +437,7 @@ function syncDirectRequests(
   });
 }
 
-type Args = Record<string, never>;
+type Args = { login?: string };
 
 const PROGRAM: Program<Args> = {
   prog: "review-requests",
@@ -476,6 +476,14 @@ const PROGRAM: Program<Args> = {
           errors.push(`ledger: ${e.message}`);
         }
         if (errors.length) throw new ReviewRequestError(errors.join("; "));
+      },
+    },
+    // Same individual-only filter as mine (team requests excluded), for another login; read-only.
+    direct: {
+      positionals: [{ name: "login" }],
+      run: ({ login }) => {
+        for (const c of fetchCandidates(login!, "review-requested", directRequest))
+          printJson({ url: c.url, title: c.title, author: c.author, updatedAt: c.pr_updated_at });
       },
     },
     list: {
