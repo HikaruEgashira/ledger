@@ -93,7 +93,7 @@ When the request is a code or configuration change (add an allowlist entry, fix 
 1. Work in `respond-workspaces/<owner>/<repo>-task-<short id>` (gitignored): clone the repository there, branch from the default branch, never touch the read-only `repositories/` checkouts.
 2. Make the smallest change that does what was agreed, following the repository's own instructions (CLAUDE.md/AGENTS.md, CODEOWNERS, PR template). Narrow anything broad (an IP range, a permission) to what the evidence supports, and say so in the PR.
 3. Commit with the repository's normal signing and push with a normal non-force push to the new branch. If signing or authentication fails, dispatch; never bypass it.
-4. Open the PR as the user (`GHTKN_APP=<org>/write gh pr create`), body in Japanese with the request's links, and apply the labels and reviewers the repository and the user's instructions require.
+4. Open the PR as the user (`GHTKN_APP=<write_app> gh pr create`), body in Japanese with the request's links, and apply the labels and reviewers the repository and the user's instructions require.
 5. Reply where the request was made with the PR link, `link` the PR to this task, and record `theirs` with a follow-up.
 
 The PR then lives in the own-PR ledger like any other; do not review or merge it here. When the change needs a choice the thread did not settle (which range, which repo, whether at all), dispatch with concrete options instead.

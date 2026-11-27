@@ -1,6 +1,8 @@
 # Copy to config/config.toml (gitignored) and fill in values for this machine / organization.
 org = "example-org"
 ghtkn_read_app = "example-org/read"
+# GHTKN app for review writes (approve / request changes); defaults to "<org>/write".
+# ghtkn_write_app = "example-org/write"
 launchd_label_prefix = "com.example"
 notify_slack_user = "U00000000"
 # Optional: enable GitHub auto-merge on your own open non-draft PRs (write-capable GHTKN app).

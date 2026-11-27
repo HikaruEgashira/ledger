@@ -3,6 +3,9 @@ name: review-ledger-prs
 description: Strictly review, approve, request changes on, withdraw an erroneous current change request, minimally dispatch, and operate the full merge-to-release lifecycle for <org> pull requests listed in the agent's pull_requests.jsonl ledger. Use whenever an agent processes the review queue, corrects its current review, re-reviews a changed PR, monitors CI or review transitions, follows a merge into release, performs post-release health monitoring, recovers a regression, closes the delivery with verified receipts, or keeps recurring ledger monitoring alive in the current Codex session with a sleep interval.
 ---
 
+
+`<write_app>` is `ghtkn_write_app` in `config/config.toml`; when unset it is `<org>/write`. Use exactly that value for every GitHub write.
+
 # Review ledger PRs
 
 Keep `pull_requests.jsonl` as the sole action-scope boundary. Read
@@ -154,7 +157,7 @@ specific evidence that supports LGTM.
    bun app/src/reviewctl/cli.ts validate
    bun app/src/review-requests.ts sync
    bun app/src/reviewctl/cli.ts validate
-   GHTKN_APP=<org>/write bun app/src/reviewctl/cli.ts auto-review --execute
+   GHTKN_APP=<write_app> bun app/src/reviewctl/cli.ts auto-review --execute
    bun app/src/reviewctl/cli.ts next --summary
    ```
 
@@ -208,7 +211,7 @@ specific evidence that supports LGTM.
   `approval_pending_verification`.
 
   ```bash
-  GHTKN_APP=<org>/write bun app/src/reviewctl/cli.ts approve \
+  GHTKN_APP=<write_app> bun app/src/reviewctl/cli.ts approve \
     <PR_URL> --execute
   ```
 
@@ -224,7 +227,7 @@ specific evidence that supports LGTM.
   and a fresh SHA before writing.
 
   ```bash
-  GHTKN_APP=<org>/write bun app/src/reviewctl/cli.ts request-changes \
+  GHTKN_APP=<write_app> bun app/src/reviewctl/cli.ts request-changes \
     <PR_URL> review-artifacts/<owner>--<repo>--<number>-changes.md --execute
   ```
 
@@ -242,7 +245,7 @@ specific evidence that supports LGTM.
   is not approval; re-review the current refs and retain all CI and thread gates.
 
   ```bash
-  GHTKN_APP=<org>/write bun app/src/reviewctl/cli.ts withdraw \
+  GHTKN_APP=<write_app> bun app/src/reviewctl/cli.ts withdraw \
     <PR_URL> --review-id <REST_REVIEW_ID> \
     --base-sha <BASE_SHA> --head-sha <HEAD_SHA> \
     --message "<concise correction>" --execute
@@ -283,7 +286,7 @@ specific evidence that supports LGTM.
   and records the recipient and delivery.
 
   ```bash
-  GHTKN_APP=<org>/write bun app/src/reviewctl/cli.ts dispatch \
+  GHTKN_APP=<write_app> bun app/src/reviewctl/cli.ts dispatch \
     <PR_URL> --reviewer <LOGIN> --execute
   ```
 
