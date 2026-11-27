@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { oneShot, SCOPE_MODEL } from "./worker.ts";
+import { oneShot } from "./worker.ts";
+import { SCOPE_MODEL } from "./tiers.ts";
 
 test("oneShot swaps model/effort/output and the prompt", () => {
   const cmd = ["env", "claude", "--model", "sonnet", "--output-format", "stream-json", "--verbose", "-p", "old"];
@@ -8,7 +9,7 @@ test("oneShot swaps model/effort/output and the prompt", () => {
 });
 
 test("conflict scope resolves to haiku at high effort", () => {
-  expect(SCOPE_MODEL["authored-conflict"]).toEqual({ model: "haiku", effort: "high" });
+  expect(SCOPE_MODEL["authored-conflicting"]).toEqual({ model: "haiku", effort: "high" });
   const cmd = ["claude", "--model", "opus", "-p", "old"];
-  expect(oneShot(cmd, "x", SCOPE_MODEL["authored-conflict"])).toEqual(["claude", "--model", "haiku", "--effort", "high", "-p", "x"]);
+  expect(oneShot(cmd, "x", SCOPE_MODEL["authored-conflicting"])).toEqual(["claude", "--model", "haiku", "--effort", "high", "-p", "x"]);
 });

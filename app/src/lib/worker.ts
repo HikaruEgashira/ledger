@@ -20,10 +20,6 @@ export function oneShot(command: string[], prompt: string, opts: { model?: strin
 }
 // Daily batches (retro, auto-decide) use a strong model at low effort.
 export const BATCH = { model: "opus", effort: "low" };
-// Mechanical work runs on a cheaper model; add a scope here to move more agent work down a tier.
-export const SCOPE_MODEL: Record<string, { model: string; effort: string }> = {
-  "authored-conflict": { model: "haiku", effort: "high" },
-};
 export const workerCommand = (): string[] => localConfig(join(ROOT, "config/config.toml")).worker_command;
 
 if (import.meta.main) {

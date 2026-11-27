@@ -5,7 +5,8 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, r
 import { join } from "node:path";
 import { exec } from "./lib/util.ts";
 import { escapeRe, localConfig, org } from "./lib/org.ts";
-import { oneShot, SCOPE_MODEL } from "./lib/worker.ts";
+import { oneShot } from "./lib/worker.ts";
+import { GATED_KINDS, record, tierFor } from "./lib/tiers.ts";
 
 export const CONCURRENCY = 50;
 /** Own-PR responders share the host's GitHub access with reviewers; keep them from crowding it out. */
@@ -37,6 +38,8 @@ export interface Job {
   exit_code?: number | null;
   evidence?: string | null;
   revivals?: number;
+  /** Model override this attempt ran on; "default" means worker_command as configured. */
+  model?: string;
 }
 export type Queue = Record<string, Job>;
 type Row = Record<string, any>;
@@ -191,9 +194,9 @@ function argv(root: string, job: Job): string[] {
   const config = localConfig(join(root, "config/config.toml"));
   const command: string[] = config.worker_command;
   if (job.kind === "task")
-    return [...command.slice(0, -1), `Read ${TASK_SKILL} and follow it for exactly this task (${job.scope} axis): ${job.url}`];
+    return oneShot(command, `Read ${TASK_SKILL} and follow it for exactly this task (${job.scope} axis): ${job.url}`, tierFor(job.scope));
   if (job.kind === "authored")
-    return oneShot(command, `Read ${RESPOND_SKILL} and follow it for exactly this pull request you authored: ${job.url}`, SCOPE_MODEL[job.scope]);
+    return oneShot(command, `Read ${RESPOND_SKILL} and follow it for exactly this pull request you authored: ${job.url}`, tierFor(job.scope));
   const scope = (config.scopes ?? []).find((s: any) => s.name === job.scope);
   // Direct requests get the full review; only scoped team PRs narrow to their profile.
   const focus = scope ? ` Read ${scope.profile} and check only those viewpoints.` : "";
@@ -209,6 +212,8 @@ function recordExit(root: string, url: string, pid: number | undefined, code: nu
   if (!job || job.pid !== pid) return;
   job.exit_code = code;
   writeQueue(root, q);
+  if (job.kind && GATED_KINDS.has(job.kind))
+    record({ scope: job.scope, kind: job.kind, model: job.model ?? "default", ok: code === 0, at: new Date().toISOString() }, join(root, "logs/tiers/outcomes.jsonl"));
   console.log(JSON.stringify({ event: code === 0 ? "QUEUE_DONE" : "QUEUE_FAILED", url, exit_code: code, at: new Date().toISOString() }));
 }
 
@@ -268,6 +273,7 @@ export function tick(root: string, rows: Row[], now = Date.now(), authored: Targ
         child.on("exit", (code) => recordExit(root, job.url, child.pid, code));
         child.unref();
         job.pid = child.pid;
+        job.model = tierFor(job.scope)?.model ?? "default";
         console.log(JSON.stringify({ event: "QUEUE_STARTED", url: job.url, attempt: job.attempts, at: new Date(now).toISOString() }));
       } catch (e) {
         // A spawn failure is the host's fault, not the PR's: give the attempt back.
