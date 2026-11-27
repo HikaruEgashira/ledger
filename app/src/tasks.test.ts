@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { cardRef, loadSources, parseSource, sourceKey } from "./lib/sources.ts";
-import { advance, groups, idFromUrl, sourcePeople, keywordPlan, taskCard, taskCards, LOOKBACK_MS, merge, readWatermark, pendingTasks, settled, taskTargets, validate, type Incoming, type TaskRow } from "./tasks.ts";
+import { advance, groups, idFromUrl, sourcePeople, keywordPlan, taskCard, taskCards, LOOKBACK_MS, merge, readWatermark, pendingTasks, settled, taskTargets, validate, type Incoming, type Person, type TaskRow } from "./tasks.ts";
 
 const I = (o: Partial<Incoming> = {}): Incoming => ({
   id: "jira:PROJ-1",
@@ -168,8 +168,7 @@ describe("sources", () => {
 });
 
 it("sourcePeople maps each person to their handle in that tool only", () => {
-
-  const people = [{ name: "a", ids: { slack: "a-s", github: "a-g" } }, { name: "b", ids: { slack: " " } }];
+  const people: Person[] = [{ name: "a", ids: { slack: "a-s", github: "a-g" } }, { name: "b", ids: { slack: " " } }];
   expect(sourcePeople("slack", people)).toEqual([{ name: "a", id: "a-s" }]);
   expect(sourcePeople("jira", people)).toEqual([]);
 });
