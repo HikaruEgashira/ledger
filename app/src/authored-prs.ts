@@ -216,7 +216,7 @@ export const activityKey = (row: AuthoredRow) => [row.reason, ...row.pending_rev
 
 export interface AuthoredTarget {
   url: string;
-  scope: "authored";
+  scope: "authored" | "authored-conflict";
   head: string;
   updated: string;
   priority: number;
@@ -225,7 +225,7 @@ export interface AuthoredTarget {
 export function authoredTargets(rows: AuthoredRow[], d: ReturnType<typeof readDispatched>, dec: Decisions = {}): AuthoredTarget[] {
   return rows
     .filter((r) => r.status === "mine_changes_requested" && r.reason !== "draft" && !isDispatched(r, d))
-    .map((r) => ({ url: r.url, scope: "authored", head: r.head_sha, updated: [activityKey(r), dec[r.url]?.at ?? ""].join("|"), priority: 60 }));
+    .map((r) => ({ url: r.url, scope: r.reason === "conflicting" ? "authored-conflict" : "authored", head: r.head_sha, updated: [activityKey(r), dec[r.url]?.at ?? ""].join("|"), priority: 60 }));
 }
 
 // Human answers to dispatched questions; an answer at the current head re-queues the worker with it.

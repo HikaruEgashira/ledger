@@ -76,6 +76,11 @@ test("authoredTargets queues my-turn PRs except drafts and dispatched heads", ()
   expect(authoredTargets([arow({ url: "d", head_sha: "new" })], { d: { head: "h", reason: "x", at: "t" } }).length).toBe(1);
 });
 
+test("conflicting PRs get their own scope so the queue can pick a cheaper model", () => {
+  expect(authoredTargets([arow({ reason: "conflicting" })], {})[0].scope).toBe("authored-conflict");
+  expect(authoredTargets([arow({ reason: "ci_failed" })], {})[0].scope).toBe("authored");
+});
+
 test("responded means the ball left the author", () => {
   expect(responded(arow({}), {})).toBe(false);
   expect(responded(arow({ status: "mine_review_requested" }), {})).toBe(true);

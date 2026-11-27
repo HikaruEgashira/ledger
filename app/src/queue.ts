@@ -5,6 +5,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, r
 import { join } from "node:path";
 import { exec } from "./lib/util.ts";
 import { escapeRe, localConfig, org } from "./lib/org.ts";
+import { oneShot, SCOPE_MODEL } from "./lib/worker.ts";
 
 export const CONCURRENCY = 50;
 /** Own-PR responders share the host's GitHub access with reviewers; keep them from crowding it out. */
@@ -192,7 +193,7 @@ function argv(root: string, job: Job): string[] {
   if (job.kind === "task")
     return [...command.slice(0, -1), `Read ${TASK_SKILL} and follow it for exactly this task (${job.scope} axis): ${job.url}`];
   if (job.kind === "authored")
-    return [...command.slice(0, -1), `Read ${RESPOND_SKILL} and follow it for exactly this pull request you authored: ${job.url}`];
+    return oneShot(command, `Read ${RESPOND_SKILL} and follow it for exactly this pull request you authored: ${job.url}`, SCOPE_MODEL[job.scope]);
   const scope = (config.scopes ?? []).find((s: any) => s.name === job.scope);
   // Direct requests get the full review; only scoped team PRs narrow to their profile.
   const focus = scope ? ` Read ${scope.profile} and check only those viewpoints.` : "";
