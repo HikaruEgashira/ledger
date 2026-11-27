@@ -38,6 +38,8 @@ notify_slack_user = "U00000000"
 # direct_requests = false
 # exclude_reviewers = ["your-github-login"]
 # disabled_jobs = ["review-request-sync"]
+# gh binary for launchd jobs; set it when `gh` on PATH is a wrapper that swaps identity (it decides who @me is).
+# gh_path = "/path/to/gh"
 exclude_authors = ["your-github-login"]
 worker_command = [
   "/usr/bin/env",

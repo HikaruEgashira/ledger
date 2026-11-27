@@ -1,16 +1,16 @@
 #!/bin/sh
 # Render launchd/*.plist.in with this checkout's path, this machine's tool paths and config/config.toml values
 # into ~/Library/LaunchAgents and reload. Jobs listed in config disabled_jobs are unloaded and not rendered.
-# Tool paths come from LEDGER_BUN / LEDGER_GH / LEDGER_CLAUDE, else `command -v` in the installing shell.
+# Tool paths come from LEDGER_BUN / LEDGER_GH (or config gh_path) / LEDGER_CLAUDE, else `command -v` in the installing shell.
 set -eu
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 dest="$HOME/Library/LaunchAgents"
 mkdir -p "$dest" "$repo_root/logs"
 need() { p=$(command -v "$1" 2>/dev/null) || { echo "install-launchd: $1 not found on PATH" >&2; exit 1; }; echo "$p"; }
 bun=${LEDGER_BUN:-$(need bun)}
-gh=${LEDGER_GH:-$(need gh)}
 claude=${LEDGER_CLAUDE:-$(need claude)}
 conf() { (cd "$repo_root/app" && "$bun" -e 'import { localConfig } from "./src/lib/org.ts"; const v = localConfig()[process.argv[1]]; console.log(Array.isArray(v) ? v.join("\n") : (v ?? ""))' "$1"); }
+gh=${LEDGER_GH:-$(conf gh_path)}; [ -n "$gh" ] || gh=$(need gh)
 prefix=$(conf launchd_label_prefix)
 ghtkn_read_app=$(conf ghtkn_read_app)
 disabled=$(conf disabled_jobs)
