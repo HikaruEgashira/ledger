@@ -19,9 +19,7 @@ notify_slack_user = "U00000000"
 # Other people whose review requests also enter the inbox (tagged `for`, never acted on; dispatched to you).
 # [[task_people]]
 # name = "alice"
-# slack = "alice"
-# email = "alice@example.com"
-# github = "alice-gh"
+# ids = { slack = "alice", jira = "alice@example.com", github = "alice-gh" }  # source name -> handle in that tool
 
 # Alert channels per connector (channel IDs): every alert posted there becomes a review task to investigate and fix.
 # task_slack_alert_channels = ["C00000000"]

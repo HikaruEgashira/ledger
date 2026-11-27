@@ -13,7 +13,7 @@ urls:
 
 ## Collect
 
-Call `getAccessibleAtlassianResources` first and pass the returned `cloudId` to every call; a guessed cloud id is rejected. Resolve me with `atlassianUserInfo`.
+Call `getAccessibleAtlassianResources` first and pass the returned `cloudId` to every call; a guessed cloud id is rejected. Resolve me with `atlassianUserInfo`. A person's `id` is their account email; resolve it with `lookupJiraAccountId`.
 
 - `review`: issues assigned to me that are not Done.
 - `respond`: issues I reported that are not Done. Skip issues created by automation without my request; when unsure, skip.

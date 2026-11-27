@@ -13,7 +13,7 @@ urls:
 
 ## Collect
 
-The prompt gives a recent window and a backfill window for this source. With `slack_search_public_and_private` (`with:me`, `include_bots: true`, `response_format: detailed`, `include_context: false`; concise drops the permalinks), follow `cursor` to the last page:
+The prompt gives a recent window and a backfill window for this source. With `slack_search_public_and_private` (`with:me`, `include_bots: true`, `response_format: detailed`, `include_context: false`; concise drops the permalinks), follow `cursor` to the last page. A person's `id` is their Slack handle; use `with:@<id>` for them, recent and backfill only:
 
 - recent: `after:<recent window start date>`, `sort: timestamp`, `sort_dir: asc`. Run it first. Report `--recent-covered-until slack=<ISO of the newest recent hit you emitted>`.
 - backfill: `after:<backfill window start date>`, `sort: timestamp`, `sort_dir: asc`. Report `--covered-until slack=<ISO of the newest backfill hit you emitted>`.

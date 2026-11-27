@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { cardRef, loadSources, parseSource, sourceKey } from "./lib/sources.ts";
-import { advance, groups, idFromUrl, keywordPlan, taskCard, taskCards, LOOKBACK_MS, merge, readWatermark, pendingTasks, settled, taskTargets, validate, type Incoming, type TaskRow } from "./tasks.ts";
+import { advance, groups, idFromUrl, sourcePeople, keywordPlan, taskCard, taskCards, LOOKBACK_MS, merge, readWatermark, pendingTasks, settled, taskTargets, validate, type Incoming, type TaskRow } from "./tasks.ts";
 
 const I = (o: Partial<Incoming> = {}): Incoming => ({
   id: "jira:PROJ-1",
@@ -152,7 +152,7 @@ describe("recent cursor", () => {
 
 describe("sources", () => {
   it("loads connectors from skills/sources and keeps existing id formats", () => {
-    expect(loadSources().map((s) => s.name)).toEqual(["jira", "slack"]);
+    expect(loadSources().map((s) => s.name)).toEqual(["github", "jira", "slack"]);
     expect(idFromUrl("https://x.slack.com/archives/C01ABC/p1794971997292459")).toBe("slack:C01ABC:1794971997.292459");
     expect(idFromUrl("https://x.atlassian.net/browse/OPS2-8420?focusedCommentId=1")).toBe("jira:OPS2-8420");
     expect(idFromUrl("https://evil.example/browse/OPS2-8420")).toBeNull();
@@ -164,4 +164,11 @@ describe("sources", () => {
     expect(cardRef("linear:ENG-42")).toEqual({ repository: "linear/ENG", number: 42 });
     expect(cardRef("slack:C01ABC:1794971997.292459")).toEqual({ repository: "slack/C01ABC", number: 0 });
   });
+});
+
+it("sourcePeople maps each person to their handle in that tool only", () => {
+
+  const people = [{ name: "a", ids: { slack: "a-s", github: "a-g" } }, { name: "b", ids: { slack: " " } }];
+  expect(sourcePeople("slack", people)).toEqual([{ name: "a", id: "a-s" }]);
+  expect(sourcePeople("jira", people)).toEqual([]);
 });

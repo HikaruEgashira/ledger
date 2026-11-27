@@ -298,11 +298,15 @@ const sourceKeywords = (name: string) => sourceList(name, "keywords");
 const sourceAlertChannels = (name: string) => sourceList(name, "alert_channels");
 
 /** Other people whose requests also enter this inbox (visibility only; workers never act as them). */
-export interface Person { name: string; slack?: string; email?: string; github?: string }
+/** Identity is per tool: `ids` maps a source name to that person's handle there, as its connector defines "me". */
+export interface Person { name: string; ids: Record<string, string> }
 export function taskPeople(): Person[] {
   const v: unknown = localConfig().task_people;
-  return Array.isArray(v) ? v.filter((p): p is Person => typeof p?.name === "string" && !!p.name.trim()) : [];
+  return Array.isArray(v) ? v.filter((p): p is Person => typeof p?.name === "string" && !!p.name.trim() && typeof p.ids === "object" && !!p.ids) : [];
 }
+/** The people a source can collect for: those with a handle in that tool. */
+export const sourcePeople = (name: string, people = taskPeople()) =>
+  people.filter((p) => typeof p.ids[name] === "string" && p.ids[name]!.trim()).map((p) => ({ name: p.name, id: p.ids[name]! }));
 
 export function syncPrompt(path: string, sources = enabledSources(), now = Date.now()): string {
   const state = store.readJson<Record<string, string>>(keywordStatePath(path), {});
@@ -314,9 +318,9 @@ export function syncPrompt(path: string, sources = enabledSources(), now = Date.
     backfill_from: readWatermark(path, now, s.name, "backfill"),
     keywords: keywordPlan(sourceKeywords(s.name), state, now, KEYWORDS_PER_RUN, s.name),
     alert_channels: sourceAlertChannels(s.name),
+    people: sourcePeople(s.name),
   }));
-  const people = taskPeople();
-  return `Read ${SYNC_SKILL} and follow it exactly once, then exit. Sources this run: ${JSON.stringify(plan)}` + (people.length ? ` People: ${JSON.stringify(people)}` : "");
+  return `Read ${SYNC_SKILL} and follow it exactly once, then exit. Sources this run: ${JSON.stringify(plan)}`;
 }
 
 function sync(path: string): number {
