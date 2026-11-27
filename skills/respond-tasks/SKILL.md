@@ -70,7 +70,7 @@ A task whose thread root is a monitoring alert (CloudWatch alarm, error-rate ale
    - Already fixed and deployed, and the metric has been clean since: reply in the alert thread with the cause in one line and the fixing PR, then `record --ball done`.
    - Transient outside the user's control (an upstream outage that recovered): reply with the cause and evidence, then `record --ball done`.
    - A code or config fix within the user's role: make it a pull request as in "Changes as pull requests" (reviewer = whoever reviewed recent PRs on the same path, ticket per the user's instructions), reply in the alert thread with the reviewer's mention and the PR link, then `record --ball theirs` with a follow-up.
-   - Otherwise, dispatch with what you found and concrete options.
+   - Otherwise, dispatch with what you found and concrete options. One option is always to reply in the alert thread with the findings as handled (e.g. "調査結果をスレッドに報告して done"), so the thread records that the alert was dealt with; never offer a silent done.
 5. Recovery (OK) notices: done, unless the same alarm keeps flapping, which is itself the investigation.
 
 Logs and payloads can hold personal data and message bodies: quote only error types, codes and stack frames in replies, PRs and tickets.
