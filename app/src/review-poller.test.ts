@@ -37,6 +37,10 @@ describe("loadScopes", () => {
     expect(s[0].exclude_authors).toEqual(["me"]);
     expect(qualifier(s[0], ORG)).toBe(`repo:${ORG}/repo -author:me`);
   });
+  it("excludes PRs owned by another reviewer", () => {
+    const s = loadScopes({ ...structuredClone(config), exclude_reviewers: ["bot"] }, workspace(), ORG, "cfg");
+    expect(qualifier(s[0], ORG)).toBe(`repo:${ORG}/repo -author:me -review-requested:bot -reviewed-by:bot`);
+  });
   it.each([
     [{ scopes: [] }, "cfg: scopes is empty"],
     [{ scopes: [{ name: "a", repo: `${ORG}/r`, profile: "missing.md" }] }, "cfg: scope a profile not found"],

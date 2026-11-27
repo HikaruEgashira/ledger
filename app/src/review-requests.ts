@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Sync direct GitHub review requests into the action-scope review ledger.
 import { type Program, runProgram } from "./lib/cli.ts";
-import { escapeRe, org } from "./lib/org.ts";
+import { escapeRe, localConfig, org } from "./lib/org.ts";
 import {
   exec,
   type Obj,
@@ -446,7 +446,10 @@ const PROGRAM: Program<Args> = {
       run: () => {
         // Direct requests go first: the slow full-ledger refresh must never delay or block a new request.
         const errors: string[] = [];
-        try {
+        // direct_requests = false: another reviewer (e.g. a remote ledger) owns this login's direct requests.
+        if (localConfig().direct_requests === false)
+          printJson({ event: "SYNC_COMPLETE", direct_requests: "disabled", observed_at: timestamp(), source: "direct_review_requests" });
+        else try {
           const login = activeLogin();
           const current = fetchCandidates(login, "review-requested", directRequest);
           const dismissed = fetchCandidates(login, "reviewed-by", dismissedReview);

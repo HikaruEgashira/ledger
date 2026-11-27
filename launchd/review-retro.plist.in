@@ -15,9 +15,9 @@
 		<key>GHTKN_BACKEND</key>
 		<string>agent</string>
 		<key>REVIEWCTL_GH</key>
-		<string>@HOME@/bin/gh</string>
+		<string>@GH@</string>
 		<key>PATH</key>
-		<string>@HOME@/.cache/vpn-guard/bin:@HOME@/bin:@HOME@/.local/bin:@HOME@/.local/share/aquaproj-aqua/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<string>@PATH@</string>
 		<key>XDG_CACHE_HOME</key>
 		<string>@HOME@/ghq/.cache</string>
 	</dict>
