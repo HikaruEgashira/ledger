@@ -61,7 +61,12 @@ bun app/src/decide-dm.ts updated '<key>'
 
 ## Remind
 
-For each `remind` item still unanswered after Watch, reply in its thread with `slack_send_message` (`thread_ts` = `ts`, `reply_broadcast: true` so it surfaces in the DM): a bold first line (`**判断待ちです（<経過時間>）**`) plus the question in one line and any deadline from the source. Then:
+For each `remind` item still unanswered after Watch, re-investigate before nudging; never resend the original question as is. Read the current state of its `url` and linked items (status, new comments, pushes, CI, Slack replies, merged/closed, decided elsewhere) and decide:
+
+- **Moot** (resolved, withdrawn, decided in the source, or the PR/issue is closed): reply in the thread without broadcast: `**判断不要になりました**` plus one line of why with a short-label link. Do not nudge.
+- **Still needed**: reply in its thread with `slack_send_message` (`thread_ts` = `ts`, `reply_broadcast: true` so it surfaces in the DM): a bold first line (`**判断待ちです（<経過時間>）**`), then one or two lines of what the re-check found now (current state, what is blocked, deadline from the source) with short-label links, and your recommended option with a one-line reason.
+
+Either way, then:
 
 ```sh
 bun app/src/decide-dm.ts reminded '<key>'
