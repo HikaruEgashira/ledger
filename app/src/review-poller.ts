@@ -24,7 +24,7 @@ query($q: String!, $cursor: String) {
 }
 `;
 
-export type Scope = { name: string; profile: string; repo?: string; repos?: string[]; authors?: string[]; exclude_authors?: string[]; exclude_reviewers?: string[]; exclude_repos?: string[]; title?: string };
+export type Scope = { name: string; profile: string; repo?: string; repos?: string[]; authors?: string[]; exclude_authors?: string[]; exclude_reviewers?: string[]; exclude_repos?: string[]; title?: string; claim_reviewed?: boolean; review_required?: boolean };
 export class PollerExit extends Error {}
 export type Gh = (args: string[]) => string;
 export type Enqueue = (url: string, scope: string) => boolean;
@@ -34,8 +34,10 @@ export function loadScopes(config: Record<string, any>, root = ROOT, orgName = o
   if (!scopes.length) throw new PollerExit(`${where}: scopes is empty`);
   for (const s of scopes) {
     if (!existsSync(join(root, s.profile))) throw new PollerExit(`${where}: scope ${s.name} profile not found`);
-    if (Boolean(s.authors?.length) === Boolean(s.repo))
-      throw new PollerExit(`${where}: scope ${s.name} needs exactly one of authors or repo`);
+    // review_required alone selects every org PR that branch rules block on a review.
+    if (s.authors?.length && s.repo) throw new PollerExit(`${where}: scope ${s.name} needs exactly one of authors or repo`);
+    if (!s.authors?.length && !s.repo && !s.review_required)
+      throw new PollerExit(`${where}: scope ${s.name} needs authors, repo or review_required`);
     if (s.repo && !s.repo.startsWith(`${orgName}/`))
       throw new PollerExit(`${where}: scope ${s.name} repo must be under ${orgName}`);
     if (s.repos?.length && (!s.authors?.length || !s.repos.every((r) => r.startsWith(`${orgName}/`))))
@@ -44,7 +46,8 @@ export function loadScopes(config: Record<string, any>, root = ROOT, orgName = o
       throw new PollerExit(`${where}: scope ${s.name} title must be non-empty without double quotes`);
     s.exclude_authors = [...(config.exclude_authors ?? []), ...(s.exclude_authors ?? [])];
     // PRs that request or already carry a review from these logins belong to another reviewer (e.g. a remote ledger).
-    s.exclude_reviewers = [...(config.exclude_reviewers ?? []), ...(s.exclude_reviewers ?? [])];
+    // claim_reviewed: this scope's PRs belong to this ledger even when they request those logins, so skip the global list.
+    s.exclude_reviewers = [...(s.claim_reviewed ? [] : (config.exclude_reviewers ?? [])), ...(s.exclude_reviewers ?? [])];
     s.exclude_repos = [...(config.exclude_repos ?? []), ...(s.exclude_repos ?? [])];
     if (!s.exclude_repos.every((r) => r.startsWith(`${orgName}/`)))
       throw new PollerExit(`${where}: scope ${s.name} exclude_repos must be under ${orgName}`);
@@ -57,8 +60,9 @@ export function qualifier(s: Scope, orgName = org()): string {
   if (s.repo) base = `repo:${s.repo}`;
   else {
     const where = s.repos?.length ? s.repos.map((r) => `repo:${r}`).join(" ") : `org:${orgName}`;
-    base = where + " " + (s.authors ?? []).map((a) => `author:${a}`).join(" ");
+    base = [where, ...(s.authors ?? []).map((a) => `author:${a}`)].join(" ");
   }
+  if (s.review_required) base += " review:required";
   if (s.title) base += ` in:title "${s.title}"`;
   return [
     base,
