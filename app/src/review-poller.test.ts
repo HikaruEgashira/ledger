@@ -45,10 +45,21 @@ describe("loadScopes", () => {
     const s = loadScopes({ ...structuredClone(config), exclude_reviewers: ["bot"] }, workspace(), ORG, "cfg");
     expect(qualifier(s[0], ORG)).toBe(`repo:${ORG}/repo -author:me -review-requested:bot -reviewed-by:bot`);
   });
+  it("lets a scope claim PRs requesting an excluded reviewer", () => {
+    const c = structuredClone(config);
+    c.scopes[0].claim_reviewed = true;
+    const s = loadScopes({ ...c, exclude_reviewers: ["bot"] }, workspace(), ORG, "cfg");
+    expect(qualifier(s[0], ORG)).toBe(`repo:${ORG}/repo -author:me`);
+  });
+  it("selects review-required PRs across the org", () => {
+    const s = loadScopes({ scopes: [{ name: "a", review_required: true, profile: config.scopes[0].profile }] }, workspace(), ORG, "cfg");
+    expect(qualifier(s[0], ORG)).toBe(`org:${ORG} review:required`);
+  });
   it.each([
     [{ scopes: [] }, "cfg: scopes is empty"],
     [{ scopes: [{ name: "a", repo: `${ORG}/r`, profile: "missing.md" }] }, "cfg: scope a profile not found"],
-    [{ scopes: [{ name: "a", profile: "profiles/p.md" }] }, "cfg: scope a needs exactly one of authors or repo"],
+    [{ scopes: [{ name: "a", profile: "profiles/p.md" }] }, "cfg: scope a needs authors, repo or review_required"],
+    [{ scopes: [{ name: "a", authors: ["x"], repo: `${ORG}/r`, profile: "profiles/p.md" }] }, "cfg: scope a needs exactly one of authors or repo"],
     [{ scopes: [{ name: "a", repo: "other/r", profile: "profiles/p.md" }] }, `cfg: scope a repo must be under ${ORG}`],
     [{ scopes: [{ name: "a", authors: ["x"], repos: ["other/r"], profile: "profiles/p.md" }] }, `cfg: scope a repos needs authors and ${ORG} repos`],
   ])("rejects %j", (c, msg) => {
